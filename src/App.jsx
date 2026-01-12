@@ -21,6 +21,16 @@ function App() {
   const [copiedId, setCopiedId] = useState(null)
   const [showToast, setShowToast] = useState(false)
 
+  // Robustness states
+  const [isOnline, setIsOnline] = useState(navigator.onLine)
+  const [retryAfter, setRetryAfter] = useState(null)
+  const [rateLimitCountdown, setRateLimitCountdown] = useState(0)
+  const [loadingProgress, setLoadingProgress] = useState('')
+  const [debugMode, setDebugMode] = useState(
+    () => localStorage.getItem('debugMode') === 'true'
+  )
+  const [debugLogs, setDebugLogs] = useState([])
+
   // Keywords to search for (case-insensitive)
   const SEARCH_KEYWORDS = [
     'BNSSG',
@@ -29,8 +39,18 @@ function App() {
     'Bristol ICB'
   ]
 
+  // Debug logging
+  const addDebugLog = (message, data = null) => {
+    const timestamp = new Date().toISOString()
+    const logEntry = { timestamp, message, data }
+    console.log(`[BNSSG Dashboard] ${message}`, data || '')
+    if (debugMode) {
+      setDebugLogs(prev => [...prev.slice(-49), logEntry]) // Keep last 50 logs
+    }
+  }
+
   // Check if a tender matches our search criteria
-  const matchesSearchCriteria = (release) => {
+  const matchesSearchCriteria = (release, logMatches = false) => {
     const searchFields = [
       release.tender?.title || '',
       release.tender?.description || '',
@@ -44,9 +64,57 @@ function App() {
 
     const searchText = searchFields.join(' ').toLowerCase()
 
-    return SEARCH_KEYWORDS.some(keyword =>
+    const matchedKeywords = SEARCH_KEYWORDS.filter(keyword =>
       searchText.includes(keyword.toLowerCase())
     )
+
+    if (logMatches && matchedKeywords.length > 0) {
+      addDebugLog(`Tender matched: "${release.tender?.title}"`, {
+        keywords: matchedKeywords,
+        ocid: release.ocid
+      })
+    }
+
+    return matchedKeywords.length > 0
+  }
+
+  // Parse date safely
+  const parseDate = (dateString) => {
+    if (!dateString) return null
+    try {
+      const date = new Date(dateString)
+      return isNaN(date.getTime()) ? null : date
+    } catch (e) {
+      addDebugLog(`Failed to parse date: ${dateString}`, e)
+      return null
+    }
+  }
+
+  // Get relative time string
+  const getRelativeTime = (dateString) => {
+    const date = parseDate(dateString)
+    if (!date) return null
+
+    const now = new Date()
+    const diffMs = now - date
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
+    const diffMinutes = Math.floor(diffMs / (1000 * 60))
+
+    if (diffMinutes < 60) return `${diffMinutes} minute${diffMinutes !== 1 ? 's' : ''} ago`
+    if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`
+    if (diffDays < 7) return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`
+    return null
+  }
+
+  // Check if cached data is stale (> 24 hours)
+  const isCachedDataStale = () => {
+    const cachedTimestamp = localStorage.getItem('bnssg_tenders_timestamp')
+    if (!cachedTimestamp) return false
+
+    const cacheAge = Date.now() - parseInt(cachedTimestamp)
+    const twentyFourHours = 24 * 60 * 60 * 1000
+    return cacheAge > twentyFourHours
   }
 
   // Format date to YYYY-MM-DDTHH:MM:SS
@@ -169,6 +237,14 @@ function App() {
     try {
       setLoading(true)
       setError(null)
+      setLoadingProgress('Initializing...')
+      addDebugLog('Starting fetch', { forceRefresh })
+
+      // Check if offline
+      if (!navigator.onLine) {
+        addDebugLog('Offline detected - using cached data')
+        throw new Error('You are offline. Showing cached data.')
+      }
 
       // Check cache first (if not forcing refresh)
       if (!forceRefresh) {
@@ -181,47 +257,113 @@ function App() {
 
           if (cacheAge < oneHour) {
             // Use cached data
+            addDebugLog('Using cached data', { cacheAgeMinutes: Math.floor(cacheAge / 60000) })
             const parsed = JSON.parse(cachedData)
             setTenders(parsed)
             setLastUpdated(new Date(parseInt(cachedTimestamp)))
             setLoading(false)
+            setLoadingProgress('')
             return
           }
         }
       }
 
-      // Build API URL
-      const updatedFrom = getThirtyDaysAgo()
-      const apiUrl = new URL('https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages')
-      apiUrl.searchParams.append('stages', 'tender')
-      apiUrl.searchParams.append('updatedFrom', updatedFrom)
-      apiUrl.searchParams.append('limit', '100')
+      // Fetch all pages of data
+      let allReleases = []
+      let cursor = null
+      let pageNumber = 0
 
-      console.log('Fetching from:', apiUrl.toString())
+      do {
+        pageNumber++
+        setLoadingProgress(`Fetching page ${pageNumber}...`)
+        addDebugLog(`Fetching page ${pageNumber}`, { cursor })
 
-      const response = await fetch(apiUrl.toString())
-
-      if (!response.ok) {
-        if (response.status === 429) {
-          throw new Error('API rate limit exceeded. Please try again later.')
+        // Build API URL
+        const updatedFrom = getThirtyDaysAgo()
+        const apiUrl = new URL('https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages')
+        apiUrl.searchParams.append('stages', 'tender')
+        apiUrl.searchParams.append('updatedFrom', updatedFrom)
+        apiUrl.searchParams.append('limit', '100')
+        if (cursor) {
+          apiUrl.searchParams.append('cursor', cursor)
         }
-        throw new Error(`API request failed: ${response.status} ${response.statusText}`)
-      }
 
-      const data = await response.json()
+        console.log('Fetching from:', apiUrl.toString())
 
-      if (!data.releases || !Array.isArray(data.releases)) {
-        throw new Error('Invalid API response format')
-      }
+        const response = await fetch(apiUrl.toString())
 
-      console.log(`Fetched ${data.releases.length} tenders from API`)
+        // Handle rate limiting
+        if (response.status === 429) {
+          const retryAfterHeader = response.headers.get('Retry-After')
+          const retrySeconds = retryAfterHeader ? parseInt(retryAfterHeader) : 60
+          setRetryAfter(retrySeconds)
+          setRateLimitCountdown(retrySeconds)
+          addDebugLog(`Rate limited. Retry after ${retrySeconds} seconds`)
+
+          // Start countdown timer
+          const countdownInterval = setInterval(() => {
+            setRateLimitCountdown(prev => {
+              if (prev <= 1) {
+                clearInterval(countdownInterval)
+                setRetryAfter(null)
+                addDebugLog('Countdown complete - retrying')
+                fetchTenders(true) // Auto-retry
+                return 0
+              }
+              return prev - 1
+            })
+          }, 1000)
+
+          throw new Error(`API rate limit reached. Retrying in ${retrySeconds} seconds...`)
+        }
+
+        if (!response.ok) {
+          throw new Error(`API request failed: ${response.status} ${response.statusText}`)
+        }
+
+        const data = await response.json()
+
+        if (!data.releases || !Array.isArray(data.releases)) {
+          addDebugLog('Invalid API response format', data)
+          throw new Error('Invalid API response format')
+        }
+
+        addDebugLog(`Fetched ${data.releases.length} tenders from page ${pageNumber}`)
+        allReleases = [...allReleases, ...data.releases]
+
+        // Check for next page cursor
+        cursor = data.links?.next || null
+
+        // Safety limit: stop after 10 pages (1000 tenders max)
+        if (pageNumber >= 10) {
+          addDebugLog('Reached pagination limit (10 pages)')
+          break
+        }
+
+      } while (cursor)
+
+      setLoadingProgress('Filtering BNSSG tenders...')
+      addDebugLog(`Total tenders fetched: ${allReleases.length}`)
 
       // Filter for BNSSG-related tenders
-      const filtered = data.releases.filter(matchesSearchCriteria)
-      console.log(`Filtered to ${filtered.length} BNSSG-related tenders`)
+      const filtered = allReleases.filter(release => {
+        // Check for invalid/missing data
+        if (!release || !release.tender) {
+          addDebugLog('Skipping tender with missing data', { ocid: release?.ocid })
+          return false
+        }
+        return matchesSearchCriteria(release, debugMode)
+      })
+
+      addDebugLog(`Filtered to ${filtered.length} BNSSG-related tenders`)
 
       // Sort by date (newest first)
-      filtered.sort((a, b) => new Date(b.date) - new Date(a.date))
+      filtered.sort((a, b) => {
+        const dateA = parseDate(b.date)
+        const dateB = parseDate(a.date)
+        if (!dateA || !dateB) return 0
+        return dateA - dateB
+      })
 
       // Cache the results
       localStorage.setItem('bnssg_tenders', JSON.stringify(filtered))
@@ -230,22 +372,29 @@ function App() {
       setTenders(filtered)
       setLastUpdated(new Date())
       setError(null)
+      setLoadingProgress('')
+      addDebugLog('Fetch completed successfully', { tenderCount: filtered.length })
 
     } catch (err) {
       console.error('Error fetching tenders:', err)
+      addDebugLog('Fetch error', { error: err.message })
       setError(err.message || 'Failed to fetch tenders')
+      setLoadingProgress('')
 
       // Try to use cached data as fallback
       const cachedData = localStorage.getItem('bnssg_tenders')
       if (cachedData) {
-        setTenders(JSON.parse(cachedData))
+        const parsed = JSON.parse(cachedData)
+        setTenders(parsed)
         const cachedTimestamp = localStorage.getItem('bnssg_tenders_timestamp')
         if (cachedTimestamp) {
           setLastUpdated(new Date(parseInt(cachedTimestamp)))
         }
+        addDebugLog('Using cached data as fallback', { tenderCount: parsed.length })
       }
     } finally {
       setLoading(false)
+      setLoadingProgress('')
     }
   }
 
@@ -334,6 +483,38 @@ function App() {
     fetchTenders()
   }, [])
 
+  // Listen for online/offline events
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true)
+      addDebugLog('Connection restored - back online')
+    }
+
+    const handleOffline = () => {
+      setIsOnline(false)
+      addDebugLog('Connection lost - offline')
+    }
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+
+  // Save debug mode preference
+  useEffect(() => {
+    localStorage.setItem('debugMode', debugMode.toString())
+  }, [debugMode])
+
+  // Toggle debug mode
+  const toggleDebugMode = () => {
+    setDebugMode(prev => !prev)
+    addDebugLog(`Debug mode ${!debugMode ? 'enabled' : 'disabled'}`)
+  }
+
   // Format currency
   const formatCurrency = (amount, currency = 'GBP') => {
     if (!amount) return null
@@ -345,9 +526,23 @@ function App() {
     }).format(amount)
   }
 
-  // Format date as DD MMM YYYY
-  const formatDate = (dateString) => {
+  // Format date as DD MMM YYYY (with relative time for recent dates)
+  const formatDate = (dateString, showRelative = true) => {
     if (!dateString) return 'Not specified'
+
+    // Try to show relative time for recent dates
+    if (showRelative) {
+      const relativeTime = getRelativeTime(dateString)
+      if (relativeTime) {
+        const formattedDate = new Date(dateString).toLocaleDateString('en-GB', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric'
+        })
+        return `${relativeTime} (${formattedDate})`
+      }
+    }
+
     return new Date(dateString).toLocaleDateString('en-GB', {
       day: '2-digit',
       month: 'short',
@@ -471,13 +666,14 @@ function App() {
               {/* Refresh Data */}
               <button
                 onClick={() => fetchTenders(true)}
-                disabled={loading}
+                disabled={loading || !isOnline}
                 className="refresh-button"
+                title={!isOnline ? 'Cannot refresh while offline' : 'Refresh tender data'}
               >
                 <svg className={`refresh-icon ${loading ? 'spinning' : ''}`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
-                {loading ? 'Refreshing...' : 'Refresh Data'}
+                {loading ? 'Refreshing...' : !isOnline ? 'Offline' : 'Refresh Data'}
               </button>
             </div>
           </div>
@@ -638,6 +834,49 @@ function App() {
           )}
         </div>
       </div>
+
+      {/* OFFLINE BANNER */}
+      {!isOnline && (
+        <div className="status-banner offline-banner">
+          <svg className="banner-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-4.243 2.829a4.978 4.978 0 01-1.414-2.83m-1.414 5.658a9 9 0 01-2.167-9.238m7.824 2.167a1 1 0 111.414 1.414m-1.414-1.414L3 3m8.293 8.293l1.414 1.414" />
+          </svg>
+          <span>You are offline. Showing cached data from {lastUpdated ? formatLastUpdated(lastUpdated) : 'previous session'}.</span>
+        </div>
+      )}
+
+      {/* STALE DATA WARNING */}
+      {!loading && tenders.length > 0 && isCachedDataStale() && (
+        <div className="status-banner stale-data-banner">
+          <svg className="banner-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <span>
+            This data is more than 24 hours old.
+            <button onClick={() => fetchTenders(true)} className="inline-refresh-button" disabled={loading || !isOnline}>
+              {isOnline ? 'Refresh now' : 'Cannot refresh while offline'}
+            </button>
+          </span>
+        </div>
+      )}
+
+      {/* RATE LIMIT BANNER */}
+      {rateLimitCountdown > 0 && (
+        <div className="status-banner rate-limit-banner">
+          <svg className="banner-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span>API rate limit reached. Automatically retrying in {rateLimitCountdown} second{rateLimitCountdown !== 1 ? 's' : ''}...</span>
+        </div>
+      )}
+
+      {/* LOADING PROGRESS */}
+      {loading && loadingProgress && (
+        <div className="status-banner loading-progress-banner">
+          <div className="spinner-small"></div>
+          <span>{loadingProgress}</span>
+        </div>
+      )}
 
       <main className="main-content">
         {/* ERROR STATE */}
@@ -946,6 +1185,48 @@ function App() {
         <p>Printed on: {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
         <p>Data source: UK Find a Tender Service (find-tender.service.gov.uk)</p>
       </div>
+
+      {/* DEBUG MODE TOGGLE */}
+      <div className="debug-toggle-container">
+        <button onClick={toggleDebugMode} className="debug-toggle-button" title="Toggle debug mode">
+          <svg className="debug-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+          </svg>
+          {debugMode ? 'Debug Mode: ON' : 'Debug Mode: OFF'}
+        </button>
+      </div>
+
+      {/* DEBUG LOGS PANEL */}
+      {debugMode && debugLogs.length > 0 && (
+        <div className="debug-panel">
+          <div className="debug-panel-header">
+            <h3>Debug Logs</h3>
+            <button
+              onClick={() => setDebugLogs([])}
+              className="clear-logs-button"
+              title="Clear logs"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              Clear
+            </button>
+          </div>
+          <div className="debug-logs">
+            {debugLogs.map((log, index) => (
+              <div key={index} className="debug-log-entry">
+                <span className="log-timestamp">
+                  {new Date(log.timestamp).toLocaleTimeString('en-GB')}
+                </span>
+                <span className="log-message">{log.message}</span>
+                {log.data && (
+                  <pre className="log-data">{JSON.stringify(log.data, null, 2)}</pre>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
