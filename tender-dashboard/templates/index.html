@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sirona Care and Health - Tender Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <h1>Sirona Care and Health</h1>
+                <h2>BNSSG Tender Opportunities Dashboard</h2>
+            </div>
+        </header>
+
+        <div class="controls-section">
+            <div class="status-bar">
+                <div class="status-item">
+                    <span class="label">Last Updated:</span>
+                    <span id="last-updated" class="value">Loading...</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Active Tenders:</span>
+                    <span id="tender-count" class="value">0</span>
+                </div>
+            </div>
+
+            <div class="controls">
+                <button id="refresh-btn" class="btn btn-primary">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Refresh Data
+                </button>
+            </div>
+        </div>
+
+        <div class="filters-section">
+            <div class="filter-group">
+                <label for="date-from">From Date:</label>
+                <input type="date" id="date-from" class="filter-input">
+            </div>
+            <div class="filter-group">
+                <label for="date-to">To Date:</label>
+                <input type="date" id="date-to" class="filter-input">
+            </div>
+            <div class="filter-group">
+                <label for="sort-by">Sort By:</label>
+                <select id="sort-by" class="filter-input">
+                    <option value="date-desc">Publication Date (Newest First)</option>
+                    <option value="date-asc">Publication Date (Oldest First)</option>
+                    <option value="deadline-asc">Deadline (Soonest First)</option>
+                    <option value="deadline-desc">Deadline (Latest First)</option>
+                    <option value="title">Title (A-Z)</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <button id="clear-filters" class="btn btn-secondary">Clear Filters</button>
+            </div>
+        </div>
+
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading tender opportunities...</p>
+        </div>
+
+        <div id="error-message" class="error-message" style="display: none;"></div>
+
+        <div id="tenders-container" class="tenders-container">
+            <!-- Tender cards will be inserted here by JavaScript -->
+        </div>
+
+        <div id="no-results" class="no-results" style="display: none;">
+            <svg class="icon-large" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <circle cx="11" cy="11" r="8"></circle>
+                <path d="m21 21-4.35-4.35"></path>
+            </svg>
+            <h3>No Tenders Found</h3>
+            <p>No tenders matching your criteria were found. Try adjusting your filters or refresh the data.</p>
+        </div>
+    </div>
+
+    <footer>
+        <p>&copy; 2026 Sirona Care and Health. Data provided by UK Government Find a Tender Service.</p>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>
