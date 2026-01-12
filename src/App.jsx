@@ -13,6 +13,14 @@ function App() {
   const [valueFilters, setValueFilters] = useState([])
   const [deadlineFilter, setDeadlineFilter] = useState('all')
 
+  // Utility states
+  const [showHelpModal, setShowHelpModal] = useState(false)
+  const [emailNotifications, setEmailNotifications] = useState(
+    () => localStorage.getItem('emailNotifications') === 'true'
+  )
+  const [copiedId, setCopiedId] = useState(null)
+  const [showToast, setShowToast] = useState(false)
+
   // Keywords to search for (case-insensitive)
   const SEARCH_KEYWORDS = [
     'BNSSG',
@@ -258,6 +266,69 @@ function App() {
     )
   }
 
+  // Toggle email notifications
+  const toggleEmailNotifications = () => {
+    const newValue = !emailNotifications
+    setEmailNotifications(newValue)
+    localStorage.setItem('emailNotifications', newValue.toString())
+  }
+
+  // Export to CSV
+  const exportToCSV = () => {
+    const csvHeaders = ['Title', 'Organization', 'Notice ID', 'Value', 'Currency', 'Deadline', 'Published Date', 'Link']
+    const csvRows = filteredAndSortedTenders.map(release => {
+      const value = release.tender?.value?.amount || ''
+      const currency = release.tender?.value?.currency || ''
+      const deadline = release.tender?.tenderPeriod?.endDate || ''
+      const link = `https://www.find-tender.service.gov.uk/Notice/${release.id}`
+
+      return [
+        `"${(release.tender?.title || 'Untitled').replace(/"/g, '""')}"`,
+        `"${(release.buyer?.name || 'Not specified').replace(/"/g, '""')}"`,
+        release.id,
+        value,
+        currency,
+        deadline ? formatDate(deadline) : '',
+        formatDate(release.date),
+        link
+      ].join(',')
+    })
+
+    const csv = [csvHeaders.join(','), ...csvRows].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    const today = new Date().toISOString().split('T')[0]
+
+    link.setAttribute('href', url)
+    link.setAttribute('download', `BNSSG_Tenders_${today}.csv`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  // Copy tender link to clipboard
+  const copyTenderLink = async (tenderId) => {
+    const link = `https://www.find-tender.service.gov.uk/Notice/${tenderId}`
+    try {
+      await navigator.clipboard.writeText(link)
+      setCopiedId(tenderId)
+      setShowToast(true)
+      setTimeout(() => {
+        setCopiedId(null)
+        setShowToast(false)
+      }, 2000)
+    } catch (err) {
+      console.error('Failed to copy:', err)
+    }
+  }
+
+  // Print view
+  const openPrintView = () => {
+    window.print()
+  }
+
   // Load data on mount
   useEffect(() => {
     fetchTenders()
@@ -330,26 +401,85 @@ function App() {
           </p>
 
           <div className="header-controls">
-            <div className="last-updated-info">
-              {lastUpdated && (
-                <>
-                  <svg className="clock-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span>Last Updated: {formatLastUpdated(lastUpdated)}</span>
-                </>
+            <div className="header-left-controls">
+              <div className="last-updated-info">
+                {lastUpdated && (
+                  <>
+                    <svg className="clock-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>Last Updated: {formatLastUpdated(lastUpdated)}</span>
+                  </>
+                )}
+              </div>
+
+              {/* Email Notifications Toggle */}
+              <label className="email-toggle">
+                <input
+                  type="checkbox"
+                  checked={emailNotifications}
+                  onChange={toggleEmailNotifications}
+                />
+                <svg className="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                <span>Email Alerts</span>
+              </label>
+              {emailNotifications && (
+                <span className="email-notice">Check back daily for new opportunities</span>
               )}
             </div>
-            <button
-              onClick={() => fetchTenders(true)}
-              disabled={loading}
-              className="refresh-button"
-            >
-              <svg className={`refresh-icon ${loading ? 'spinning' : ''}`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              {loading ? 'Refreshing...' : 'Refresh Data'}
-            </button>
+
+            <div className="header-right-controls">
+              {/* Help Button */}
+              <button
+                onClick={() => setShowHelpModal(true)}
+                className="icon-button help-button"
+                title="Help & Information"
+              >
+                <svg className="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </button>
+
+              {/* Export to CSV */}
+              <button
+                onClick={exportToCSV}
+                disabled={filteredAndSortedTenders.length === 0}
+                className="utility-button"
+                title="Export to CSV"
+              >
+                <svg className="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Export CSV
+              </button>
+
+              {/* Print View */}
+              <button
+                onClick={openPrintView}
+                disabled={filteredAndSortedTenders.length === 0}
+                className="utility-button"
+                title="Print View"
+              >
+                <svg className="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                </svg>
+                Print
+              </button>
+
+              {/* Refresh Data */}
+              <button
+                onClick={() => fetchTenders(true)}
+                disabled={loading}
+                className="refresh-button"
+              >
+                <svg className={`refresh-icon ${loading ? 'spinning' : ''}`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                {loading ? 'Refreshing...' : 'Refresh Data'}
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -668,24 +798,154 @@ function App() {
                     </div>
                   </div>
 
-                  {/* View tender button */}
-                  <a
-                    href={`https://www.find-tender.service.gov.uk/Notice/${release.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="view-tender-button"
-                  >
-                    View Full Tender
-                    <svg className="button-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                    </svg>
-                  </a>
+                  {/* Action buttons */}
+                  <div className="tender-actions">
+                    <button
+                      onClick={() => copyTenderLink(release.id)}
+                      className="copy-link-button"
+                      title="Copy tender link to clipboard"
+                    >
+                      {copiedId === release.id ? (
+                        <>
+                          <svg className="button-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          Copied!
+                        </>
+                      ) : (
+                        <>
+                          <svg className="button-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                          </svg>
+                          Copy Link
+                        </>
+                      )}
+                    </button>
+
+                    <a
+                      href={`https://www.find-tender.service.gov.uk/Notice/${release.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="view-tender-button"
+                    >
+                      View Full Tender
+                      <svg className="button-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                  </div>
                 </article>
               )
             })}
           </div>
         )}
       </main>
+
+      {/* HELP MODAL */}
+      {showHelpModal && (
+        <div className="modal-overlay" onClick={() => setShowHelpModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Help & Information</h2>
+              <button
+                onClick={() => setShowHelpModal(false)}
+                className="modal-close"
+                title="Close"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="modal-body">
+              <section className="help-section">
+                <h3>What is BNSSG?</h3>
+                <p>
+                  BNSSG stands for <strong>Bristol, North Somerset and South Gloucestershire</strong> Integrated Care System.
+                  This dashboard displays procurement opportunities from NHS Bristol, Bristol ICB (Integrated Care Board),
+                  and other healthcare organizations operating in the BNSSG region.
+                </p>
+              </section>
+
+              <section className="help-section">
+                <h3>Data Updates</h3>
+                <p>
+                  Tender data is fetched from the official UK Find a Tender service API. The dashboard:
+                </p>
+                <ul>
+                  <li>Automatically caches results for 1 hour for faster performance</li>
+                  <li>Shows tenders published in the last 30 days</li>
+                  <li>Updates when you click the "Refresh Data" button</li>
+                  <li>Displays the last update timestamp in the header</li>
+                </ul>
+              </section>
+
+              <section className="help-section">
+                <h3>What Tenders Are Included?</h3>
+                <p>
+                  The dashboard searches all UK public sector tenders and filters to show only those matching:
+                </p>
+                <ul>
+                  <li>Organizations containing "BNSSG"</li>
+                  <li>"Bristol, North Somerset and South Gloucestershire"</li>
+                  <li>"NHS Bristol"</li>
+                  <li>"Bristol ICB"</li>
+                </ul>
+                <p>
+                  Search covers tender titles, descriptions, buyer names, and participating organization details.
+                </p>
+              </section>
+
+              <section className="help-section">
+                <h3>Features</h3>
+                <ul>
+                  <li><strong>Sort & Filter:</strong> Use the toolbar to find relevant opportunities quickly</li>
+                  <li><strong>Export CSV:</strong> Download all visible tenders for offline analysis</li>
+                  <li><strong>Copy Link:</strong> Share individual tender URLs with colleagues</li>
+                  <li><strong>Print View:</strong> Print a clean list of opportunities</li>
+                  <li><strong>Email Alerts:</strong> Enable to remind you to check back daily (UI only - no actual emails sent)</li>
+                </ul>
+              </section>
+
+              <section className="help-section">
+                <h3>Need Help?</h3>
+                <p>
+                  For questions about specific tenders, contact the buyer organization directly via the Find a Tender service.
+                </p>
+                <p>
+                  For dashboard technical issues or feature requests, please contact:
+                  <strong> Sirona Care and Health IT Support</strong>
+                </p>
+              </section>
+
+              <section className="help-section">
+                <h3>Data Source</h3>
+                <p>
+                  All tender data comes from the official UK government Find a Tender service (<a href="https://www.find-tender.service.gov.uk" target="_blank" rel="noopener noreferrer">find-tender.service.gov.uk</a>),
+                  which publishes public sector procurement opportunities in the Open Contracting Data Standard (OCDS) format.
+                </p>
+              </section>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TOAST NOTIFICATION */}
+      {showToast && (
+        <div className="toast-notification">
+          <svg className="toast-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+          <span>Link copied to clipboard!</span>
+        </div>
+      )}
+
+      {/* PRINT FOOTER */}
+      <div className="print-footer">
+        <p>Generated by Sirona Care and Health - BNSSG Tender Dashboard</p>
+        <p>Printed on: {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+        <p>Data source: UK Find a Tender Service (find-tender.service.gov.uk)</p>
+      </div>
     </div>
   )
 }
