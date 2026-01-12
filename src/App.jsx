@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import './App.css'
 
 function App() {
@@ -6,6 +6,12 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [lastUpdated, setLastUpdated] = useState(null)
+
+  // Filter and sort states
+  const [sortBy, setSortBy] = useState('newest')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [valueFilters, setValueFilters] = useState([])
+  const [deadlineFilter, setDeadlineFilter] = useState('all')
 
   // Keywords to search for (case-insensitive)
   const SEARCH_KEYWORDS = [
@@ -55,6 +61,100 @@ function App() {
     const daysUntil = Math.ceil((deadline - now) / (1000 * 60 * 60 * 24))
     return daysUntil <= 14 && daysUntil >= 0
   }
+
+  // Get days until deadline
+  const getDaysUntilDeadline = (dateString) => {
+    if (!dateString) return null
+    const deadline = new Date(dateString)
+    const now = new Date()
+    return Math.ceil((deadline - now) / (1000 * 60 * 60 * 24))
+  }
+
+  // Check if tender matches value filter
+  const matchesValueFilter = (release) => {
+    if (valueFilters.length === 0) return true
+
+    const amount = release.tender?.value?.amount
+
+    if (!amount && valueFilters.includes('unknown')) return true
+    if (!amount) return false
+
+    if (valueFilters.includes('under50k') && amount < 50000) return true
+    if (valueFilters.includes('50k-250k') && amount >= 50000 && amount < 250000) return true
+    if (valueFilters.includes('250k-1m') && amount >= 250000 && amount < 1000000) return true
+    if (valueFilters.includes('over1m') && amount >= 1000000) return true
+
+    return false
+  }
+
+  // Check if tender matches deadline filter
+  const matchesDeadlineFilter = (release) => {
+    if (deadlineFilter === 'all') return true
+
+    const deadline = release.tender?.tenderPeriod?.endDate
+    if (!deadline) return false
+
+    const daysUntil = getDaysUntilDeadline(deadline)
+    if (daysUntil === null || daysUntil < 0) return false
+
+    if (deadlineFilter === '7days' && daysUntil <= 7) return true
+    if (deadlineFilter === '14days' && daysUntil <= 14) return true
+    if (deadlineFilter === '30days' && daysUntil <= 30) return true
+
+    return false
+  }
+
+  // Check if tender matches search query
+  const matchesSearchQuery = (release) => {
+    if (!searchQuery.trim()) return true
+
+    const query = searchQuery.toLowerCase()
+    const searchableText = [
+      release.tender?.title || '',
+      release.tender?.description || '',
+      release.buyer?.name || ''
+    ].join(' ').toLowerCase()
+
+    return searchableText.includes(query)
+  }
+
+  // Filter and sort tenders
+  const filteredAndSortedTenders = useMemo(() => {
+    let result = [...tenders]
+
+    // Apply search filter
+    result = result.filter(matchesSearchQuery)
+
+    // Apply value filter
+    result = result.filter(matchesValueFilter)
+
+    // Apply deadline filter
+    result = result.filter(matchesDeadlineFilter)
+
+    // Apply sorting
+    result.sort((a, b) => {
+      if (sortBy === 'newest') {
+        return new Date(b.date) - new Date(a.date)
+      } else if (sortBy === 'deadline') {
+        const aDeadline = a.tender?.tenderPeriod?.endDate
+        const bDeadline = b.tender?.tenderPeriod?.endDate
+
+        // Tenders without deadlines go to the end
+        if (!aDeadline && !bDeadline) return 0
+        if (!aDeadline) return 1
+        if (!bDeadline) return -1
+
+        return new Date(aDeadline) - new Date(bDeadline)
+      } else if (sortBy === 'value') {
+        const aValue = a.tender?.value?.amount || 0
+        const bValue = b.tender?.value?.amount || 0
+        return bValue - aValue
+      }
+      return 0
+    })
+
+    return result
+  }, [tenders, searchQuery, valueFilters, deadlineFilter, sortBy])
 
   // Fetch tenders from API
   const fetchTenders = async (forceRefresh = false) => {
@@ -141,6 +241,23 @@ function App() {
     }
   }
 
+  // Clear all filters
+  const clearFilters = () => {
+    setSortBy('newest')
+    setSearchQuery('')
+    setValueFilters([])
+    setDeadlineFilter('all')
+  }
+
+  // Toggle value filter
+  const toggleValueFilter = (filter) => {
+    setValueFilters(prev =>
+      prev.includes(filter)
+        ? prev.filter(f => f !== filter)
+        : [...prev, filter]
+    )
+  }
+
   // Load data on mount
   useEffect(() => {
     fetchTenders()
@@ -196,6 +313,12 @@ function App() {
     return text.substring(0, maxLength).trim() + '...'
   }
 
+  // Check if any filters are active
+  const hasActiveFilters = searchQuery.trim() !== '' ||
+                           valueFilters.length > 0 ||
+                           deadlineFilter !== 'all' ||
+                           sortBy !== 'newest'
+
   return (
     <div className="App">
       {/* HEADER SECTION */}
@@ -231,6 +354,161 @@ function App() {
         </div>
       </header>
 
+      {/* FILTER TOOLBAR */}
+      <div className="filter-toolbar">
+        <div className="toolbar-content">
+          {/* Search Bar */}
+          <div className="filter-section search-section">
+            <label htmlFor="search" className="filter-label">
+              <svg className="filter-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              Search
+            </label>
+            <input
+              id="search"
+              type="text"
+              placeholder="Search tenders by title, description, or organization..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="search-input"
+            />
+          </div>
+
+          {/* Sort Dropdown */}
+          <div className="filter-section">
+            <label htmlFor="sort" className="filter-label">
+              <svg className="filter-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
+              </svg>
+              Sort By
+            </label>
+            <select
+              id="sort"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="filter-select"
+            >
+              <option value="newest">Newest First</option>
+              <option value="deadline">Deadline Soon</option>
+              <option value="value">Highest Value</option>
+            </select>
+          </div>
+
+          {/* Value Filters */}
+          <div className="filter-section">
+            <div className="filter-label">
+              <svg className="filter-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Value Range
+            </div>
+            <div className="checkbox-group">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={valueFilters.includes('under50k')}
+                  onChange={() => toggleValueFilter('under50k')}
+                />
+                <span>Under £50k</span>
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={valueFilters.includes('50k-250k')}
+                  onChange={() => toggleValueFilter('50k-250k')}
+                />
+                <span>£50k - £250k</span>
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={valueFilters.includes('250k-1m')}
+                  onChange={() => toggleValueFilter('250k-1m')}
+                />
+                <span>£250k - £1M</span>
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={valueFilters.includes('over1m')}
+                  onChange={() => toggleValueFilter('over1m')}
+                />
+                <span>Over £1M</span>
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={valueFilters.includes('unknown')}
+                  onChange={() => toggleValueFilter('unknown')}
+                />
+                <span>Unknown/Not specified</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Deadline Filters */}
+          <div className="filter-section">
+            <div className="filter-label">
+              <svg className="filter-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              Deadline
+            </div>
+            <div className="radio-group">
+              <label className="radio-label">
+                <input
+                  type="radio"
+                  name="deadline"
+                  checked={deadlineFilter === 'all'}
+                  onChange={() => setDeadlineFilter('all')}
+                />
+                <span>All deadlines</span>
+              </label>
+              <label className="radio-label">
+                <input
+                  type="radio"
+                  name="deadline"
+                  checked={deadlineFilter === '7days'}
+                  onChange={() => setDeadlineFilter('7days')}
+                />
+                <span>Closing within 7 days</span>
+              </label>
+              <label className="radio-label">
+                <input
+                  type="radio"
+                  name="deadline"
+                  checked={deadlineFilter === '14days'}
+                  onChange={() => setDeadlineFilter('14days')}
+                />
+                <span>Closing within 14 days</span>
+              </label>
+              <label className="radio-label">
+                <input
+                  type="radio"
+                  name="deadline"
+                  checked={deadlineFilter === '30days'}
+                  onChange={() => setDeadlineFilter('30days')}
+                />
+                <span>Closing within 30 days</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Clear Filters Button */}
+          {hasActiveFilters && (
+            <div className="filter-section">
+              <button onClick={clearFilters} className="clear-filters-button">
+                <svg className="button-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Clear Filters
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
       <main className="main-content">
         {/* ERROR STATE */}
         {error && (
@@ -262,8 +540,13 @@ function App() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
               <div className="stat-content">
-                <span className="stat-value">{tenders.length}</span>
-                <span className="stat-label">Active Tender{tenders.length !== 1 ? 's' : ''}</span>
+                <span className="stat-value">{filteredAndSortedTenders.length}</span>
+                <span className="stat-label">
+                  {hasActiveFilters
+                    ? `Showing ${filteredAndSortedTenders.length} of ${tenders.length} tenders`
+                    : `Active Tender${tenders.length !== 1 ? 's' : ''}`
+                  }
+                </span>
               </div>
             </div>
             <div className="stat-item">
@@ -289,10 +572,24 @@ function App() {
           </div>
         )}
 
+        {/* NO RESULTS AFTER FILTERING */}
+        {!loading && tenders.length > 0 && filteredAndSortedTenders.length === 0 && (
+          <div className="empty-state">
+            <svg className="empty-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <h3>No Matching Tenders</h3>
+            <p>No tenders match your current filters. Try adjusting your search criteria.</p>
+            <button onClick={clearFilters} className="retry-button">
+              Clear Filters
+            </button>
+          </div>
+        )}
+
         {/* TENDER CARDS */}
-        {!loading && tenders.length > 0 && (
+        {!loading && filteredAndSortedTenders.length > 0 && (
           <div className="tenders-grid">
-            {tenders.map((release) => {
+            {filteredAndSortedTenders.map((release) => {
               const deadline = release.tender?.tenderPeriod?.endDate
               const deadlineSoon = isDeadlineSoon(deadline)
               const value = release.tender?.value?.amount
