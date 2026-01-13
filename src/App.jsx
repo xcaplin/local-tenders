@@ -43,7 +43,8 @@ function App() {
 
   // CORS proxy for API access (use when direct access fails)
   const USE_CORS_PROXY = true
-  const CORS_PROXY = 'https://api.allorigins.win/raw?url='
+  const CORS_PROXY = 'https://api.allorigins.win/get?url='
+  const CORS_PROXY_TYPE = 'allorigins' // 'allorigins' returns wrapped response
 
   // Debug logging
   const addDebugLog = (message, data = null) => {
@@ -235,7 +236,11 @@ function App() {
         throw new Error(`API returned ${response.status}: ${response.statusText}`)
       }
 
-      const data = await response.json()
+      let data = await response.json()
+      // Unwrap allorigins response if needed
+      if (USE_CORS_PROXY && CORS_PROXY_TYPE === 'allorigins' && data.contents) {
+        data = JSON.parse(data.contents)
+      }
       addDebugLog('API Response data', {
         hasReleases: !!data.releases,
         releasesCount: data.releases?.length || 0,
@@ -262,7 +267,11 @@ function App() {
         }
       })
 
-      const data2 = await response2.json()
+      let data2 = await response2.json()
+      // Unwrap allorigins response if needed
+      if (USE_CORS_PROXY && CORS_PROXY_TYPE === 'allorigins' && data2.contents) {
+        data2 = JSON.parse(data2.contents)
+      }
       addDebugLog('Date-filtered results', {
         count: data2.releases?.length || 0,
         sampleTitles: data2.releases?.slice(0, 3).map(r => r.tender?.title) || []
@@ -449,7 +458,16 @@ function App() {
         addDebugLog('Parsing JSON response...')
         let data
         try {
-          data = await response.json()
+          const rawData = await response.json()
+
+          // If using allorigins /get endpoint, unwrap the response
+          if (USE_CORS_PROXY && CORS_PROXY_TYPE === 'allorigins' && rawData.contents) {
+            addDebugLog('Unwrapping allorigins response')
+            data = JSON.parse(rawData.contents)
+          } else {
+            data = rawData
+          }
+
           addDebugLog('JSON parsed successfully', {
             hasReleases: !!data.releases,
             releasesCount: data.releases?.length,
