@@ -357,6 +357,14 @@ function App() {
 
       addDebugLog(`Filtered to ${filtered.length} BNSSG-related tenders`)
 
+      // Log warning if API returned results but none matched
+      if (allReleases.length > 0 && filtered.length === 0) {
+        addDebugLog(`⚠️ API returned ${allReleases.length} tenders but none matched BNSSG criteria`, {
+          keywords: SEARCH_KEYWORDS,
+          sampleTitles: allReleases.slice(0, 3).map(r => r.tender?.title)
+        })
+      }
+
       // Sort by date (newest first)
       filtered.sort((a, b) => {
         const dateA = parseDate(b.date)
@@ -938,6 +946,9 @@ function App() {
             </svg>
             <h3>No Tenders Found</h3>
             <p>No BNSSG-related tenders found in the last 30 days. Check back soon!</p>
+            <p style={{ marginTop: '1rem', fontSize: '0.875rem', color: 'var(--text-light)' }}>
+              Enable Debug Mode (button in bottom right) to see detailed API information.
+            </p>
           </div>
         )}
 
