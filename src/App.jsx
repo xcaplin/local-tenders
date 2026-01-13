@@ -20,6 +20,7 @@ function App() {
   )
   const [copiedId, setCopiedId] = useState(null)
   const [showToast, setShowToast] = useState(false)
+  const [testingAPI, setTestingAPI] = useState(false)
 
   // Robustness states
   const [isOnline, setIsOnline] = useState(navigator.onLine)
@@ -194,6 +195,82 @@ function App() {
     return searchableText.includes(query)
   }
 
+  // Test API connectivity with detailed logging
+  const testAPIConnection = async () => {
+    setTestingAPI(true)
+    addDebugLog('=== Starting API Connection Test ===')
+
+    try {
+      // Test 1: Simple GET request
+      addDebugLog('Test 1: Basic API connectivity test')
+      const testUrl = 'https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages?stages=tender&limit=1'
+      addDebugLog('Test URL', { url: testUrl })
+
+      const response = await fetch(testUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+        mode: 'cors'
+      })
+
+      addDebugLog('API Response received', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        type: response.type,
+        url: response.url
+      })
+
+      if (!response.ok) {
+        throw new Error(`API returned ${response.status}: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      addDebugLog('API Response data', {
+        hasReleases: !!data.releases,
+        releasesCount: data.releases?.length || 0,
+        hasLinks: !!data.links,
+        sampleRelease: data.releases?.[0]?.ocid || 'none'
+      })
+
+      // Test 2: With date filter (last 30 days)
+      addDebugLog('Test 2: Testing with date filter')
+      const thirtyDaysAgo = getThirtyDaysAgo()
+      addDebugLog('Date filter', { updatedFrom: thirtyDaysAgo })
+
+      const testUrl2 = `https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages?stages=tender&updatedFrom=${encodeURIComponent(thirtyDaysAgo)}&limit=5`
+      addDebugLog('Test URL with date', { url: testUrl2 })
+
+      const response2 = await fetch(testUrl2, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+        mode: 'cors'
+      })
+
+      const data2 = await response2.json()
+      addDebugLog('Date-filtered results', {
+        count: data2.releases?.length || 0,
+        sampleTitles: data2.releases?.slice(0, 3).map(r => r.tender?.title) || []
+      })
+
+      addDebugLog('✅ API Connection Test PASSED', { totalTests: 2 })
+      alert('API Test Passed! Check Debug Panel for details.')
+
+    } catch (err) {
+      addDebugLog('❌ API Connection Test FAILED', {
+        error: err.message,
+        name: err.name,
+        stack: err.stack?.split('\n').slice(0, 3).join('\n')
+      })
+      alert(`API Test Failed: ${err.message}\n\nCheck Debug Panel for details.`)
+    } finally {
+      setTestingAPI(false)
+    }
+  }
+
   // Filter and sort tenders
   const filteredAndSortedTenders = useMemo(() => {
     let result = [...tenders]
@@ -288,16 +365,44 @@ function App() {
           apiUrl.searchParams.append('cursor', cursor)
         }
 
-        console.log('Fetching from:', apiUrl.toString())
-
-        const response = await fetch(apiUrl.toString(), {
+        const fullUrl = apiUrl.toString()
+        console.log('Fetching from:', fullUrl)
+        addDebugLog('Making fetch request', {
+          url: fullUrl,
           method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-          },
-          mode: 'cors',
-          cache: 'default'
+          cors: true,
+          updatedFrom
         })
+
+        let response
+        try {
+          response = await fetch(fullUrl, {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+            },
+            mode: 'cors',
+            cache: 'default'
+          })
+
+          addDebugLog('Fetch response received', {
+            status: response.status,
+            statusText: response.statusText,
+            ok: response.ok,
+            type: response.type,
+            headers: {
+              contentType: response.headers.get('content-type'),
+              cacheControl: response.headers.get('cache-control')
+            }
+          })
+        } catch (fetchErr) {
+          addDebugLog('Fetch request failed', {
+            error: fetchErr.message,
+            name: fetchErr.name,
+            type: fetchErr.constructor.name
+          })
+          throw fetchErr
+        }
 
         // Handle rate limiting
         if (response.status === 429) {
@@ -325,14 +430,31 @@ function App() {
         }
 
         if (!response.ok) {
+          addDebugLog(`API returned error status ${response.status}`)
           throw new Error(`API request failed: ${response.status} ${response.statusText}`)
         }
 
-        const data = await response.json()
+        addDebugLog('Parsing JSON response...')
+        let data
+        try {
+          data = await response.json()
+          addDebugLog('JSON parsed successfully', {
+            hasReleases: !!data.releases,
+            releasesCount: data.releases?.length,
+            hasLinks: !!data.links
+          })
+        } catch (jsonErr) {
+          addDebugLog('JSON parse failed', { error: jsonErr.message })
+          throw new Error(`Failed to parse API response: ${jsonErr.message}`)
+        }
 
         if (!data.releases || !Array.isArray(data.releases)) {
-          addDebugLog('Invalid API response format', data)
-          throw new Error('Invalid API response format')
+          addDebugLog('Invalid API response format', {
+            hasReleases: !!data.releases,
+            isArray: Array.isArray(data.releases),
+            dataKeys: Object.keys(data)
+          })
+          throw new Error('Invalid API response format - missing or invalid releases array')
         }
 
         addDebugLog(`Fetched ${data.releases.length} tenders from page ${pageNumber}`)
@@ -1242,20 +1364,34 @@ function App() {
       </div>
 
       {/* DEBUG LOGS PANEL */}
-      {debugMode && debugLogs.length > 0 && (
+      {debugMode && (
         <div className="debug-panel">
           <div className="debug-panel-header">
             <h3>Debug Logs</h3>
-            <button
-              onClick={() => setDebugLogs([])}
-              className="clear-logs-button"
-              title="Clear logs"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-              Clear
-            </button>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                onClick={testAPIConnection}
+                disabled={testingAPI}
+                className="clear-logs-button"
+                title="Test API Connection"
+                style={{ background: testingAPI ? '#666' : 'rgba(76, 175, 80, 0.2)', borderColor: '#4CAF50' }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {testingAPI ? 'Testing...' : 'Test API'}
+              </button>
+              <button
+                onClick={() => setDebugLogs([])}
+                className="clear-logs-button"
+                title="Clear logs"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Clear
+              </button>
+            </div>
           </div>
           <div className="debug-logs">
             {debugLogs.map((log, index) => (
