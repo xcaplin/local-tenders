@@ -43,7 +43,7 @@ function App() {
 
   // CORS proxy for API access (use when direct access fails)
   const USE_CORS_PROXY = true
-  const CORS_PROXY = 'https://corsproxy.io/?'
+  const CORS_PROXY = 'https://api.allorigins.win/raw?url='
 
   // Debug logging
   const addDebugLog = (message, data = null) => {
