@@ -12,6 +12,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [valueFilters, setValueFilters] = useState([])
   const [deadlineFilter, setDeadlineFilter] = useState('all')
+  const [showAllTenders, setShowAllTenders] = useState(false)
 
   // Utility states
   const [showHelpModal, setShowHelpModal] = useState(false)
@@ -471,27 +472,48 @@ function App() {
 
       } while (cursor)
 
-      setLoadingProgress('Filtering BNSSG tenders...')
+      setLoadingProgress(showAllTenders ? 'Processing all tenders...' : 'Filtering BNSSG tenders...')
       addDebugLog(`Total tenders fetched: ${allReleases.length}`)
 
-      // Filter for BNSSG-related tenders
-      const filtered = allReleases.filter(release => {
-        // Check for invalid/missing data
-        if (!release || !release.tender) {
-          addDebugLog('Skipping tender with missing data', { ocid: release?.ocid })
-          return false
-        }
-        return matchesSearchCriteria(release, debugMode)
-      })
-
-      addDebugLog(`Filtered to ${filtered.length} BNSSG-related tenders`)
-
-      // Log warning if API returned results but none matched
-      if (allReleases.length > 0 && filtered.length === 0) {
-        addDebugLog(`⚠️ API returned ${allReleases.length} tenders but none matched BNSSG criteria`, {
-          keywords: SEARCH_KEYWORDS,
-          sampleTitles: allReleases.slice(0, 3).map(r => r.tender?.title)
+      // Filter for BNSSG-related tenders (unless showAllTenders is enabled)
+      let filtered
+      if (showAllTenders) {
+        addDebugLog('Showing ALL tenders (BNSSG filter disabled)')
+        // Remove only invalid/missing data
+        filtered = allReleases.filter(release => {
+          if (!release || !release.tender) {
+            return false
+          }
+          return true
         })
+        addDebugLog(`Showing ${filtered.length} tenders (unfiltered)`)
+      } else {
+        filtered = allReleases.filter(release => {
+          // Check for invalid/missing data
+          if (!release || !release.tender) {
+            addDebugLog('Skipping tender with missing data', { ocid: release?.ocid })
+            return false
+          }
+          const matches = matchesSearchCriteria(release, debugMode)
+          if (!matches && debugMode) {
+            addDebugLog(`Tender does not match BNSSG criteria: "${release.tender?.title}"`, {
+              buyer: release.buyer?.name,
+              ocid: release.ocid
+            })
+          }
+          return matches
+        })
+
+        addDebugLog(`Filtered to ${filtered.length} BNSSG-related tenders`)
+
+        // Log warning if API returned results but none matched
+        if (allReleases.length > 0 && filtered.length === 0) {
+          addDebugLog(`⚠️ API returned ${allReleases.length} tenders but none matched BNSSG criteria`, {
+            keywords: SEARCH_KEYWORDS,
+            sampleTitles: allReleases.slice(0, 3).map(r => r.tender?.title),
+            sampleBuyers: allReleases.slice(0, 3).map(r => r.buyer?.name)
+          })
+        }
       }
 
       // Sort by date (newest first)
@@ -647,6 +669,14 @@ function App() {
     fetchTenders()
   }, [])
 
+  // Reload data when showAllTenders changes
+  useEffect(() => {
+    if (tenders.length > 0) {
+      // Only refetch if we already have data loaded
+      fetchTenders(true)
+    }
+  }, [showAllTenders])
+
   // Listen for online/offline events
   useEffect(() => {
     const handleOnline = () => {
@@ -756,7 +786,11 @@ function App() {
         <div className="header-content">
           <h1 className="main-title">Sirona Care and Health - BNSSG Tender Opportunities</h1>
           <p className="subtitle">
-            Showing tenders matching: <span className="search-terms">BNSSG, Bristol NHS, Bristol ICB</span>
+            {showAllTenders ? (
+              <>Showing <span className="search-terms">ALL UK Public Sector Tenders</span> (last 30 days)</>
+            ) : (
+              <>Showing tenders matching: <span className="search-terms">BNSSG, Bristol NHS, Bristol ICB</span></>
+            )}
           </p>
 
           <div className="header-controls">
@@ -771,6 +805,27 @@ function App() {
                   </>
                 )}
               </div>
+
+              {/* Show All Tenders Toggle */}
+              <label className="email-toggle" style={{ background: showAllTenders ? 'rgba(255, 193, 7, 0.2)' : undefined }}>
+                <input
+                  type="checkbox"
+                  checked={showAllTenders}
+                  onChange={() => {
+                    setShowAllTenders(!showAllTenders)
+                    addDebugLog(`Show all tenders: ${!showAllTenders ? 'enabled' : 'disabled'}`)
+                  }}
+                />
+                <svg className="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <span>Show All Tenders</span>
+              </label>
+              {showAllTenders && (
+                <span className="email-notice" style={{ background: 'rgba(255, 193, 7, 0.15)', color: '#F57C00' }}>
+                  ⚠️ BNSSG filter disabled - showing all UK tenders
+                </span>
+              )}
 
               {/* Email Notifications Toggle */}
               <label className="email-toggle">
