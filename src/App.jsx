@@ -290,7 +290,14 @@ function App() {
 
         console.log('Fetching from:', apiUrl.toString())
 
-        const response = await fetch(apiUrl.toString())
+        const response = await fetch(apiUrl.toString(), {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+          },
+          mode: 'cors',
+          cache: 'default'
+        })
 
         // Handle rate limiting
         if (response.status === 429) {
@@ -385,20 +392,47 @@ function App() {
 
     } catch (err) {
       console.error('Error fetching tenders:', err)
-      addDebugLog('Fetch error', { error: err.message })
-      setError(err.message || 'Failed to fetch tenders')
+
+      // Detailed error logging
+      const errorDetails = {
+        message: err.message,
+        name: err.name,
+        stack: err.stack?.split('\n').slice(0, 2).join('\n') || 'No stack trace',
+        type: err.constructor.name
+      }
+
+      addDebugLog('Fetch error details', errorDetails)
+
+      // More helpful error message
+      let userMessage = 'Failed to fetch tenders from the API. '
+      if (err.message.includes('Failed to fetch') || err.name === 'TypeError') {
+        userMessage += 'This may be due to network issues, CORS restrictions, or the API being temporarily unavailable. '
+      } else if (err.message.includes('NetworkError') || err.message.includes('network')) {
+        userMessage += 'Network connection error. Please check your internet connection. '
+      } else {
+        userMessage += err.message + ' '
+      }
+      userMessage += 'Attempting to show cached data if available.'
+
+      setError(userMessage)
       setLoadingProgress('')
 
       // Try to use cached data as fallback
       const cachedData = localStorage.getItem('bnssg_tenders')
       if (cachedData) {
-        const parsed = JSON.parse(cachedData)
-        setTenders(parsed)
-        const cachedTimestamp = localStorage.getItem('bnssg_tenders_timestamp')
-        if (cachedTimestamp) {
-          setLastUpdated(new Date(parseInt(cachedTimestamp)))
+        try {
+          const parsed = JSON.parse(cachedData)
+          setTenders(parsed)
+          const cachedTimestamp = localStorage.getItem('bnssg_tenders_timestamp')
+          if (cachedTimestamp) {
+            setLastUpdated(new Date(parseInt(cachedTimestamp)))
+          }
+          addDebugLog('Using cached data as fallback', { tenderCount: parsed.length })
+        } catch (parseErr) {
+          addDebugLog('Failed to parse cached data', { error: parseErr.message })
         }
-        addDebugLog('Using cached data as fallback', { tenderCount: parsed.length })
+      } else {
+        addDebugLog('No cached data available')
       }
     } finally {
       setLoading(false)
