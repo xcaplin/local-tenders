@@ -41,6 +41,10 @@ function App() {
     'Bristol ICB'
   ]
 
+  // CORS proxy for API access (use when direct access fails)
+  const USE_CORS_PROXY = true
+  const CORS_PROXY = 'https://corsproxy.io/?'
+
   // Debug logging
   const addDebugLog = (message, data = null) => {
     const timestamp = new Date().toISOString()
@@ -204,15 +208,19 @@ function App() {
     try {
       // Test 1: Simple GET request
       addDebugLog('Test 1: Basic API connectivity test')
-      const testUrl = 'https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages?stages=tender&limit=1'
-      addDebugLog('Test URL', { url: testUrl })
+      const baseUrl = 'https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages?stages=tender&limit=1'
+      const testUrl = USE_CORS_PROXY ? CORS_PROXY + encodeURIComponent(baseUrl) : baseUrl
+      addDebugLog('Test URL', {
+        url: testUrl,
+        usingProxy: USE_CORS_PROXY,
+        originalUrl: baseUrl
+      })
 
       const response = await fetch(testUrl, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
-        },
-        mode: 'cors'
+        }
       })
 
       addDebugLog('API Response received', {
@@ -240,15 +248,18 @@ function App() {
       const thirtyDaysAgo = getThirtyDaysAgo()
       addDebugLog('Date filter', { updatedFrom: thirtyDaysAgo })
 
-      const testUrl2 = `https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages?stages=tender&updatedFrom=${encodeURIComponent(thirtyDaysAgo)}&limit=5`
-      addDebugLog('Test URL with date', { url: testUrl2 })
+      const baseUrl2 = `https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages?stages=tender&updatedFrom=${encodeURIComponent(thirtyDaysAgo)}&limit=5`
+      const testUrl2 = USE_CORS_PROXY ? CORS_PROXY + encodeURIComponent(baseUrl2) : baseUrl2
+      addDebugLog('Test URL with date', {
+        url: testUrl2,
+        usingProxy: USE_CORS_PROXY
+      })
 
       const response2 = await fetch(testUrl2, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
-        },
-        mode: 'cors'
+        }
       })
 
       const data2 = await response2.json()
@@ -367,23 +378,23 @@ function App() {
         }
 
         const fullUrl = apiUrl.toString()
-        console.log('Fetching from:', fullUrl)
+        const fetchUrl = USE_CORS_PROXY ? CORS_PROXY + encodeURIComponent(fullUrl) : fullUrl
+        console.log('Fetching from:', fetchUrl)
         addDebugLog('Making fetch request', {
-          url: fullUrl,
+          url: fetchUrl,
+          originalUrl: fullUrl,
           method: 'GET',
-          cors: true,
+          usingProxy: USE_CORS_PROXY,
           updatedFrom
         })
 
         let response
         try {
-          response = await fetch(fullUrl, {
+          response = await fetch(fetchUrl, {
             method: 'GET',
             headers: {
               'Accept': 'application/json',
-            },
-            mode: 'cors',
-            cache: 'default'
+            }
           })
 
           addDebugLog('Fetch response received', {
