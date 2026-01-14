@@ -1,0 +1,64 @@
+name: Fetch Tender Data
+
+on:
+  schedule:
+    # Run every 6 hours
+    - cron: '0 */6 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  fetch-and-cache:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch tender data from API
+        run: |
+          # Calculate date 30 days ago
+          UPDATED_FROM=$(date -u -d '30 days ago' '+%Y-%m-%d')
+
+          # Fetch data from API
+          API_URL="https://www.find-tender.service.gov.uk/api/1.0/ocdsRecordPackages?stages=tender&updatedFrom=${UPDATED_FROM}&limit=100"
+
+          echo "Fetching from: $API_URL"
+
+          # Fetch and save
+          curl -s "$API_URL" \
+            -H "Accept: application/json" \
+            -o /tmp/api-response.json
+
+          # Check if fetch was successful
+          if [ $? -ne 0 ] || [ ! -s /tmp/api-response.json ]; then
+            echo "Failed to fetch data from API"
+            exit 1
+          fi
+
+          # Add metadata
+          cat /tmp/api-response.json | jq --arg date "$(date -u '+%Y-%m-%d %H:%M:%S UTC')" \
+            '. + {lastUpdated: $date, cacheAge: "6 hours"}' \
+            > public/cached-tenders.json
+
+          echo "✅ Successfully fetched and cached tender data"
+
+          # Show summary
+          RECORD_COUNT=$(cat public/cached-tenders.json | jq '.records | length')
+          echo "📊 Cached $RECORD_COUNT records"
+
+      - name: Commit cached data
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+          git add public/cached-tenders.json
+
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update cached tender data [skip ci]"
+            git push
+            echo "✅ Committed and pushed cached data"
+          fi
