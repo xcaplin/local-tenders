@@ -41,9 +41,8 @@ function App() {
     'Bristol ICB'
   ]
 
-  // CORS proxy for API access (use when direct access fails)
-  // Try direct access first - UK Gov APIs often support CORS
-  const USE_CORS_PROXY = false
+  // CORS proxy for API access (required for browser CORS restrictions)
+  const USE_CORS_PROXY = true
   const CORS_PROXY = 'https://api.allorigins.win/get?url='
   const CORS_PROXY_TYPE = 'allorigins' // 'allorigins' returns wrapped response
 
