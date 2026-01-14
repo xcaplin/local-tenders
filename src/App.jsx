@@ -43,8 +43,8 @@ function App() {
 
   // CORS proxy for API access (required for browser CORS restrictions)
   const USE_CORS_PROXY = true
-  const CORS_PROXY = 'https://api.allorigins.win/get?url='
-  const CORS_PROXY_TYPE = 'allorigins' // 'allorigins' returns wrapped response
+  const CORS_PROXY = 'https://corsproxy.io/?'
+  const CORS_PROXY_TYPE = 'raw' // 'raw' for direct passthrough, 'allorigins' for wrapped
 
   // Debug logging
   const addDebugLog = (message, data = null) => {
