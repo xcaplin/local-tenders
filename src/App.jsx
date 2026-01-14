@@ -42,7 +42,8 @@ function App() {
   ]
 
   // CORS proxy for API access (use when direct access fails)
-  const USE_CORS_PROXY = true
+  // Try direct access first - UK Gov APIs often support CORS
+  const USE_CORS_PROXY = false
   const CORS_PROXY = 'https://api.allorigins.win/get?url='
   const CORS_PROXY_TYPE = 'allorigins' // 'allorigins' returns wrapped response
 
@@ -56,14 +57,17 @@ function App() {
     }
   }
 
-  // Check if a tender matches our search criteria
-  const matchesSearchCriteria = (release, logMatches = false) => {
+  // Check if a record matches our search criteria
+  const matchesSearchCriteria = (record, logMatches = false) => {
+    // Access the compiled release from the record
+    const compiledRelease = record.compiledRelease || {}
+
     const searchFields = [
-      release.tender?.title || '',
-      release.tender?.description || '',
-      release.buyer?.name || '',
-      ...(release.parties || []).map(p => p.name || ''),
-      ...(release.parties || []).flatMap(p => {
+      compiledRelease.tender?.title || '',
+      compiledRelease.tender?.description || '',
+      compiledRelease.buyer?.name || '',
+      ...(compiledRelease.parties || []).map(p => p.name || ''),
+      ...(compiledRelease.parties || []).flatMap(p => {
         const addr = p.address || {}
         return [addr.streetAddress, addr.locality, addr.region, addr.postalCode, addr.countryName].filter(Boolean)
       })
@@ -76,9 +80,9 @@ function App() {
     )
 
     if (logMatches && matchedKeywords.length > 0) {
-      addDebugLog(`Tender matched: "${release.tender?.title}"`, {
+      addDebugLog(`Record matched: "${compiledRelease.tender?.title}"`, {
         keywords: matchedKeywords,
-        ocid: release.ocid
+        ocid: record.ocid
       })
     }
 
@@ -154,10 +158,10 @@ function App() {
   }
 
   // Check if tender matches value filter
-  const matchesValueFilter = (release) => {
+  const matchesValueFilter = (record) => {
     if (valueFilters.length === 0) return true
 
-    const amount = release.tender?.value?.amount
+    const amount = record.compiledRelease?.tender?.value?.amount
 
     if (!amount && valueFilters.includes('unknown')) return true
     if (!amount) return false
@@ -171,10 +175,10 @@ function App() {
   }
 
   // Check if tender matches deadline filter
-  const matchesDeadlineFilter = (release) => {
+  const matchesDeadlineFilter = (record) => {
     if (deadlineFilter === 'all') return true
 
-    const deadline = release.tender?.tenderPeriod?.endDate
+    const deadline = record.compiledRelease?.tender?.tenderPeriod?.endDate
     if (!deadline) return false
 
     const daysUntil = getDaysUntilDeadline(deadline)
@@ -188,14 +192,14 @@ function App() {
   }
 
   // Check if tender matches search query
-  const matchesSearchQuery = (release) => {
+  const matchesSearchQuery = (record) => {
     if (!searchQuery.trim()) return true
 
     const query = searchQuery.toLowerCase()
     const searchableText = [
-      release.tender?.title || '',
-      release.tender?.description || '',
-      release.buyer?.name || ''
+      record.compiledRelease?.tender?.title || '',
+      record.compiledRelease?.tender?.description || '',
+      record.compiledRelease?.buyer?.name || ''
     ].join(' ').toLowerCase()
 
     return searchableText.includes(query)
@@ -209,7 +213,7 @@ function App() {
     try {
       // Test 1: Simple GET request
       addDebugLog('Test 1: Basic API connectivity test')
-      const baseUrl = 'https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages?stages=tender&limit=1'
+      const baseUrl = 'https://www.find-tender.service.gov.uk/api/1.0/ocdsRecordPackages?stages=tender&limit=1'
       const testUrl = USE_CORS_PROXY ? CORS_PROXY + encodeURIComponent(baseUrl) : baseUrl
       addDebugLog('Test URL', {
         url: testUrl,
@@ -242,10 +246,10 @@ function App() {
         data = JSON.parse(data.contents)
       }
       addDebugLog('API Response data', {
-        hasReleases: !!data.releases,
-        releasesCount: data.releases?.length || 0,
+        hasRecords: !!data.records,
+        recordsCount: data.records?.length || 0,
         hasLinks: !!data.links,
-        sampleRelease: data.releases?.[0]?.ocid || 'none'
+        sampleOcid: data.records?.[0]?.ocid || 'none'
       })
 
       // Test 2: With date filter (last 30 days)
@@ -253,7 +257,7 @@ function App() {
       const thirtyDaysAgo = getThirtyDaysAgo()
       addDebugLog('Date filter', { updatedFrom: thirtyDaysAgo })
 
-      const baseUrl2 = `https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages?stages=tender&updatedFrom=${encodeURIComponent(thirtyDaysAgo)}&limit=5`
+      const baseUrl2 = `https://www.find-tender.service.gov.uk/api/1.0/ocdsRecordPackages?stages=tender&updatedFrom=${encodeURIComponent(thirtyDaysAgo)}&limit=5`
       const testUrl2 = USE_CORS_PROXY ? CORS_PROXY + encodeURIComponent(baseUrl2) : baseUrl2
       addDebugLog('Test URL with date', {
         url: testUrl2,
@@ -273,8 +277,8 @@ function App() {
         data2 = JSON.parse(data2.contents)
       }
       addDebugLog('Date-filtered results', {
-        count: data2.releases?.length || 0,
-        sampleTitles: data2.releases?.slice(0, 3).map(r => r.tender?.title) || []
+        count: data2.records?.length || 0,
+        sampleTitles: data2.records?.slice(0, 3).map(r => r.compiledRelease?.tender?.title) || []
       })
 
       addDebugLog('✅ API Connection Test PASSED', { totalTests: 2 })
@@ -308,20 +312,20 @@ function App() {
     // Apply sorting
     result.sort((a, b) => {
       if (sortBy === 'newest') {
-        return new Date(b.date) - new Date(a.date)
+        return new Date(b.compiledRelease?.date) - new Date(a.compiledRelease?.date)
       } else if (sortBy === 'deadline') {
-        const aDeadline = a.tender?.tenderPeriod?.endDate
-        const bDeadline = b.tender?.tenderPeriod?.endDate
+        const aDeadline = a.compiledRelease?.tender?.tenderPeriod?.endDate
+        const bDeadline = b.compiledRelease?.tender?.tenderPeriod?.endDate
 
-        // Tenders without deadlines go to the end
+        // Records without deadlines go to the end
         if (!aDeadline && !bDeadline) return 0
         if (!aDeadline) return 1
         if (!bDeadline) return -1
 
         return new Date(aDeadline) - new Date(bDeadline)
       } else if (sortBy === 'value') {
-        const aValue = a.tender?.value?.amount || 0
-        const bValue = b.tender?.value?.amount || 0
+        const aValue = a.compiledRelease?.tender?.value?.amount || 0
+        const bValue = b.compiledRelease?.tender?.value?.amount || 0
         return bValue - aValue
       }
       return 0
@@ -367,7 +371,7 @@ function App() {
       }
 
       // Fetch all pages of data
-      let allReleases = []
+      let allRecords = []
       let cursor = null
       let pageNumber = 0
 
@@ -378,7 +382,7 @@ function App() {
 
         // Build API URL
         const updatedFrom = getThirtyDaysAgo()
-        const apiUrl = new URL('https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages')
+        const apiUrl = new URL('https://www.find-tender.service.gov.uk/api/1.0/ocdsRecordPackages')
         apiUrl.searchParams.append('stages', 'tender')
         apiUrl.searchParams.append('updatedFrom', updatedFrom)
         apiUrl.searchParams.append('limit', '100')
@@ -469,8 +473,8 @@ function App() {
           }
 
           addDebugLog('JSON parsed successfully', {
-            hasReleases: !!data.releases,
-            releasesCount: data.releases?.length,
+            hasRecords: !!data.records,
+            recordsCount: data.records?.length,
             hasLinks: !!data.links
           })
         } catch (jsonErr) {
@@ -478,17 +482,17 @@ function App() {
           throw new Error(`Failed to parse API response: ${jsonErr.message}`)
         }
 
-        if (!data.releases || !Array.isArray(data.releases)) {
+        if (!data.records || !Array.isArray(data.records)) {
           addDebugLog('Invalid API response format', {
-            hasReleases: !!data.releases,
-            isArray: Array.isArray(data.releases),
+            hasRecords: !!data.records,
+            isArray: Array.isArray(data.records),
             dataKeys: Object.keys(data)
           })
-          throw new Error('Invalid API response format - missing or invalid releases array')
+          throw new Error('Invalid API response format - missing or invalid records array')
         }
 
-        addDebugLog(`Fetched ${data.releases.length} tenders from page ${pageNumber}`)
-        allReleases = [...allReleases, ...data.releases]
+        addDebugLog(`Fetched ${data.records.length} records from page ${pageNumber}`)
+        allRecords = [...allRecords, ...data.records]
 
         // Check for next page cursor
         cursor = data.links?.next || null
@@ -501,54 +505,54 @@ function App() {
 
       } while (cursor)
 
-      setLoadingProgress(showAllTenders ? 'Processing all tenders...' : 'Filtering BNSSG tenders...')
-      addDebugLog(`Total tenders fetched: ${allReleases.length}`)
+      setLoadingProgress(showAllTenders ? 'Processing all records...' : 'Filtering BNSSG records...')
+      addDebugLog(`Total records fetched: ${allRecords.length}`)
 
-      // Filter for BNSSG-related tenders (unless showAllTenders is enabled)
+      // Filter for BNSSG-related records (unless showAllTenders is enabled)
       let filtered
       if (showAllTenders) {
-        addDebugLog('Showing ALL tenders (BNSSG filter disabled)')
+        addDebugLog('Showing ALL records (BNSSG filter disabled)')
         // Remove only invalid/missing data
-        filtered = allReleases.filter(release => {
-          if (!release || !release.tender) {
+        filtered = allRecords.filter(record => {
+          if (!record || !record.compiledRelease || !record.compiledRelease.tender) {
             return false
           }
           return true
         })
-        addDebugLog(`Showing ${filtered.length} tenders (unfiltered)`)
+        addDebugLog(`Showing ${filtered.length} records (unfiltered)`)
       } else {
-        filtered = allReleases.filter(release => {
+        filtered = allRecords.filter(record => {
           // Check for invalid/missing data
-          if (!release || !release.tender) {
-            addDebugLog('Skipping tender with missing data', { ocid: release?.ocid })
+          if (!record || !record.compiledRelease || !record.compiledRelease.tender) {
+            addDebugLog('Skipping record with missing data', { ocid: record?.ocid })
             return false
           }
-          const matches = matchesSearchCriteria(release, debugMode)
+          const matches = matchesSearchCriteria(record, debugMode)
           if (!matches && debugMode) {
-            addDebugLog(`Tender does not match BNSSG criteria: "${release.tender?.title}"`, {
-              buyer: release.buyer?.name,
-              ocid: release.ocid
+            addDebugLog(`Record does not match BNSSG criteria: "${record.compiledRelease.tender?.title}"`, {
+              buyer: record.compiledRelease.buyer?.name,
+              ocid: record.ocid
             })
           }
           return matches
         })
 
-        addDebugLog(`Filtered to ${filtered.length} BNSSG-related tenders`)
+        addDebugLog(`Filtered to ${filtered.length} BNSSG-related records`)
 
         // Log warning if API returned results but none matched
-        if (allReleases.length > 0 && filtered.length === 0) {
-          addDebugLog(`⚠️ API returned ${allReleases.length} tenders but none matched BNSSG criteria`, {
+        if (allRecords.length > 0 && filtered.length === 0) {
+          addDebugLog(`⚠️ API returned ${allRecords.length} records but none matched BNSSG criteria`, {
             keywords: SEARCH_KEYWORDS,
-            sampleTitles: allReleases.slice(0, 3).map(r => r.tender?.title),
-            sampleBuyers: allReleases.slice(0, 3).map(r => r.buyer?.name)
+            sampleTitles: allRecords.slice(0, 3).map(r => r.compiledRelease?.tender?.title),
+            sampleBuyers: allRecords.slice(0, 3).map(r => r.compiledRelease?.buyer?.name)
           })
         }
       }
 
       // Sort by date (newest first)
       filtered.sort((a, b) => {
-        const dateA = parseDate(b.date)
-        const dateB = parseDate(a.date)
+        const dateA = parseDate(b.compiledRelease?.date)
+        const dateB = parseDate(a.compiledRelease?.date)
         if (!dateA || !dateB) return 0
         return dateA - dateB
       })
@@ -640,20 +644,21 @@ function App() {
   // Export to CSV
   const exportToCSV = () => {
     const csvHeaders = ['Title', 'Organization', 'Notice ID', 'Value', 'Currency', 'Deadline', 'Published Date', 'Link']
-    const csvRows = filteredAndSortedTenders.map(release => {
-      const value = release.tender?.value?.amount || ''
-      const currency = release.tender?.value?.currency || ''
-      const deadline = release.tender?.tenderPeriod?.endDate || ''
-      const link = `https://www.find-tender.service.gov.uk/Notice/${release.id}`
+    const csvRows = filteredAndSortedTenders.map(record => {
+      const compiledRelease = record.compiledRelease || {}
+      const value = compiledRelease.tender?.value?.amount || ''
+      const currency = compiledRelease.tender?.value?.currency || ''
+      const deadline = compiledRelease.tender?.tenderPeriod?.endDate || ''
+      const link = `https://www.find-tender.service.gov.uk/Notice/${compiledRelease.id}`
 
       return [
-        `"${(release.tender?.title || 'Untitled').replace(/"/g, '""')}"`,
-        `"${(release.buyer?.name || 'Not specified').replace(/"/g, '""')}"`,
-        release.id,
+        `"${(compiledRelease.tender?.title || 'Untitled').replace(/"/g, '""')}"`,
+        `"${(compiledRelease.buyer?.name || 'Not specified').replace(/"/g, '""')}"`,
+        compiledRelease.id,
         value,
         currency,
         deadline ? formatDate(deadline) : '',
-        formatDate(release.date),
+        formatDate(compiledRelease.date),
         link
       ].join(',')
     })
@@ -1209,14 +1214,15 @@ function App() {
         {/* TENDER CARDS */}
         {!loading && filteredAndSortedTenders.length > 0 && (
           <div className="tenders-grid">
-            {filteredAndSortedTenders.map((release) => {
-              const deadline = release.tender?.tenderPeriod?.endDate
+            {filteredAndSortedTenders.map((record) => {
+              const compiledRelease = record.compiledRelease || {}
+              const deadline = compiledRelease.tender?.tenderPeriod?.endDate
               const deadlineSoon = isDeadlineSoon(deadline)
-              const value = release.tender?.value?.amount
-              const currency = release.tender?.value?.currency || 'GBP'
+              const value = compiledRelease.tender?.value?.amount
+              const currency = compiledRelease.tender?.value?.currency || 'GBP'
 
               return (
-                <article key={release.ocid} className="tender-card">
+                <article key={record.ocid} className="tender-card">
                   {/* Deadline badge */}
                   {deadline && deadlineSoon && (
                     <div className="deadline-badge urgent">
@@ -1228,24 +1234,24 @@ function App() {
                   )}
 
                   {/* Title */}
-                  <h2 className="tender-title">{release.tender?.title || 'Untitled Tender'}</h2>
+                  <h2 className="tender-title">{compiledRelease.tender?.title || 'Untitled Tender'}</h2>
 
                   {/* Organization */}
                   <div className="tender-organization">
                     <svg className="org-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                     </svg>
-                    <span className="org-name">{release.buyer?.name || 'Not specified'}</span>
+                    <span className="org-name">{compiledRelease.buyer?.name || 'Not specified'}</span>
                   </div>
 
                   {/* Notice ID */}
-                  <div className="notice-id">Notice ID: {release.id}</div>
+                  <div className="notice-id">Notice ID: {compiledRelease.id}</div>
 
                   {/* Description */}
-                  {release.tender?.description && (
+                  {compiledRelease.tender?.description && (
                     <div className="tender-description">
-                      <p>{truncateDescription(release.tender.description, 200)}</p>
-                      {release.tender.description.length > 200 && (
+                      <p>{truncateDescription(compiledRelease.tender.description, 200)}</p>
+                      {compiledRelease.tender.description.length > 200 && (
                         <span className="read-more">Read more...</span>
                       )}
                     </div>
@@ -1283,7 +1289,7 @@ function App() {
                       </svg>
                       <div>
                         <span className="metadata-label">Published</span>
-                        <span className="metadata-value">{formatDate(release.date)}</span>
+                        <span className="metadata-value">{formatDate(compiledRelease.date)}</span>
                       </div>
                     </div>
                   </div>
@@ -1291,11 +1297,11 @@ function App() {
                   {/* Action buttons */}
                   <div className="tender-actions">
                     <button
-                      onClick={() => copyTenderLink(release.id)}
+                      onClick={() => copyTenderLink(compiledRelease.id)}
                       className="copy-link-button"
                       title="Copy tender link to clipboard"
                     >
-                      {copiedId === release.id ? (
+                      {copiedId === compiledRelease.id ? (
                         <>
                           <svg className="button-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -1313,7 +1319,7 @@ function App() {
                     </button>
 
                     <a
-                      href={`https://www.find-tender.service.gov.uk/Notice/${release.id}`}
+                      href={`https://www.find-tender.service.gov.uk/Notice/${compiledRelease.id}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="view-tender-button"
