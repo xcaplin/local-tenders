@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BNSSG Tenders - API Test Approaches</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 2rem;
+        }
+
+        .subtitle {
+            color: rgba(255,255,255,0.9);
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 1rem;
+        }
+
+        .approaches {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .approach-card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .approach-card h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.3rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .approach-card p {
+            color: #666;
+            margin-bottom: 15px;
+            line-height: 1.5;
+        }
+
+        .test-button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            width: 100%;
+            transition: all 0.3s;
+        }
+
+        .test-button:hover:not(:disabled) {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .test-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .result {
+            margin-top: 15px;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .result.success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+
+        .result.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+
+        .result.loading {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge.recommended {
+            background: #28a745;
+            color: white;
+        }
+
+        .badge.experimental {
+            background: #ffc107;
+            color: #000;
+        }
+
+        .badge.baseline {
+            background: #6c757d;
+            color: white;
+        }
+
+        .test-all {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .test-all-button {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .test-all-button:hover:not(:disabled) {
+            background: #218838;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(40, 167, 69, 0.4);
+        }
+
+        .summary {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .summary h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        .summary-item {
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .proxy-options {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            font-size: 0.85rem;
+        }
+
+        .proxy-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 5px 0;
+        }
+
+        .proxy-option input[type="radio"] {
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 BNSSG Tender Dashboard - API Approach Testing</h1>
+        <p class="subtitle">Testing different methods to fetch tender data and bypass CORS restrictions</p>
+
+        <div class="test-all">
+            <button class="test-all-button" onclick="testAllApproaches()">🚀 Test All Approaches</button>
+        </div>
+
+        <div class="approaches">
+            <!-- Approach 1: CORS Proxies -->
+            <div class="approach-card">
+                <h2>
+                    <span>🌐 Approach 1: CORS Proxy Services</span>
+                    <span class="badge recommended">Recommended</span>
+                </h2>
+                <p>Uses third-party CORS proxy services to bypass browser restrictions. Quick to implement but depends on external services.</p>
+
+                <div class="proxy-options">
+                    <strong>Select Proxy:</strong>
+                    <div class="proxy-option">
+                        <input type="radio" id="proxy1" name="proxy" value="https://corsproxy.io/?" checked>
+                        <label for="proxy1">corsproxy.io (Fast, reliable)</label>
+                    </div>
+                    <div class="proxy-option">
+                        <input type="radio" id="proxy2" name="proxy" value="https://api.allorigins.win/raw?url=">
+                        <label for="proxy2">allorigins.win (Popular)</label>
+                    </div>
+                    <div class="proxy-option">
+                        <input type="radio" id="proxy3" name="proxy" value="https://cors.sh/?">
+                        <label for="proxy3">cors.sh (New)</label>
+                    </div>
+                </div>
+
+                <button class="test-button" onclick="testCORSProxy()">Test CORS Proxy</button>
+                <div id="result1" class="result" style="display:none;"></div>
+            </div>
+
+            <!-- Approach 2: Pre-fetched Data -->
+            <div class="approach-card">
+                <h2>
+                    <span>⏰ Approach 2: Pre-fetched Data</span>
+                    <span class="badge experimental">Experimental</span>
+                </h2>
+                <p>GitHub Actions fetches data every 6 hours and commits it as JSON. App loads from this cached file. No CORS issues, but data may be stale.</p>
+                <button class="test-button" onclick="testPrefetchedData()">Test Pre-fetched Data</button>
+                <div id="result2" class="result" style="display:none;"></div>
+            </div>
+
+            <!-- Approach 3: Direct API Call -->
+            <div class="approach-card">
+                <h2>
+                    <span>🔗 Approach 3: Direct API Call</span>
+                    <span class="badge baseline">Baseline</span>
+                </h2>
+                <p>Direct call to Find a Tender API without proxy. Expected to fail due to CORS, but confirms the root issue.</p>
+                <button class="test-button" onclick="testDirectAPI()">Test Direct API</button>
+                <div id="result3" class="result" style="display:none;"></div>
+            </div>
+        </div>
+
+        <div class="summary">
+            <h2>📊 Test Results Summary</h2>
+            <div id="summary-content">
+                <p style="color: #666;">Run tests to see results...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'https://www.find-tender.service.gov.uk/api/1.0/ocdsRecordPackages?stages=tender&limit=3';
+        const BNSSG_KEYWORDS = ['BNSSG', 'Bristol, North Somerset and South Gloucestershire', 'NHS Bristol', 'Bristol ICB'];
+
+        let results = {
+            corsProxy: null,
+            prefetched: null,
+            direct: null
+        };
+
+        function showResult(elementId, status, message, data = null) {
+            const el = document.getElementById(elementId);
+            el.style.display = 'block';
+            el.className = `result ${status}`;
+
+            let html = `<strong>${status.toUpperCase()}:</strong> ${message}`;
+
+            if (data) {
+                html += `\n\n<strong>Data Preview:</strong>\n${JSON.stringify(data, null, 2)}`;
+            }
+
+            el.textContent = html;
+        }
+
+        async function testCORSProxy() {
+            const proxyUrl = document.querySelector('input[name="proxy"]:checked').value;
+            const testUrl = proxyUrl + encodeURIComponent(API_URL);
+
+            showResult('result1', 'loading', `Testing ${proxyUrl}...`);
+
+            try {
+                const response = await fetch(testUrl, {
+                    headers: { 'Accept': 'application/json' }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+
+                if (!data.records || !Array.isArray(data.records)) {
+                    throw new Error('Invalid response format - missing records array');
+                }
+
+                const recordCount = data.records.length;
+                const firstRecord = data.records[0]?.compiledRelease;
+
+                results.corsProxy = { success: true, proxy: proxyUrl, count: recordCount };
+
+                showResult('result1', 'success',
+                    `✅ SUCCESS!\n\nProxy: ${proxyUrl}\nRecords fetched: ${recordCount}\nFirst tender: ${firstRecord?.tender?.title || 'N/A'}`,
+                    { recordCount, sampleTitle: firstRecord?.tender?.title, sampleBuyer: firstRecord?.buyer?.name }
+                );
+
+                updateSummary();
+            } catch (error) {
+                results.corsProxy = { success: false, proxy: proxyUrl, error: error.message };
+                showResult('result1', 'error',
+                    `❌ FAILED\n\nProxy: ${proxyUrl}\nError: ${error.message}\n\nThis proxy may be down or rate-limited.`
+                );
+                updateSummary();
+            }
+        }
+
+        async function testPrefetchedData() {
+            showResult('result2', 'loading', 'Checking for pre-fetched data...');
+
+            try {
+                const response = await fetch('/local-tenders/cached-tenders.json');
+
+                if (!response.ok) {
+                    throw new Error('Pre-fetched data file not found. GitHub Action not set up yet.');
+                }
+
+                const data = await response.json();
+                const recordCount = data.records?.length || 0;
+                const lastUpdated = data.lastUpdated || 'Unknown';
+
+                results.prefetched = { success: true, count: recordCount, lastUpdated };
+
+                showResult('result2', 'success',
+                    `✅ SUCCESS!\n\nRecords loaded: ${recordCount}\nLast updated: ${lastUpdated}\n\nData is cached and loads instantly!`,
+                    { recordCount, lastUpdated, cacheAge: data.cacheAge }
+                );
+
+                updateSummary();
+            } catch (error) {
+                results.prefetched = { success: false, error: error.message };
+                showResult('result2', 'error',
+                    `❌ NOT SET UP YET\n\nError: ${error.message}\n\nTo enable: Create GitHub Action to fetch and cache data.`
+                );
+                updateSummary();
+            }
+        }
+
+        async function testDirectAPI() {
+            showResult('result3', 'loading', 'Testing direct API access...');
+
+            try {
+                const response = await fetch(API_URL, {
+                    headers: { 'Accept': 'application/json' }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                const recordCount = data.records?.length || 0;
+
+                results.direct = { success: true, count: recordCount };
+
+                showResult('result3', 'success',
+                    `✅ UNEXPECTED SUCCESS!\n\nDirect API access works! No CORS proxy needed.\nRecords fetched: ${recordCount}`,
+                    { recordCount, corsEnabled: true }
+                );
+
+                updateSummary();
+            } catch (error) {
+                results.direct = { success: false, error: error.message };
+
+                const isCORSError = error.message.includes('CORS') ||
+                                   error.message.includes('Load failed') ||
+                                   error.message.includes('NetworkError');
+
+                showResult('result3', 'error',
+                    `❌ EXPECTED FAILURE\n\nError: ${error.message}\n\n${isCORSError ? 'This confirms CORS is blocking direct access.' : 'Unexpected error - check console.'}`,
+                    { errorType: isCORSError ? 'CORS' : 'Other', errorMessage: error.message }
+                );
+
+                updateSummary();
+            }
+        }
+
+        async function testAllApproaches() {
+            await testCORSProxy();
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            await testPrefetchedData();
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            await testDirectAPI();
+        }
+
+        function updateSummary() {
+            const summaryEl = document.getElementById('summary-content');
+            let html = '';
+
+            if (results.corsProxy) {
+                html += `<div class="summary-item" style="background: ${results.corsProxy.success ? '#d4edda' : '#f8d7da'}">
+                    <span><strong>CORS Proxy:</strong> ${results.corsProxy.success ? '✅ Working' : '❌ Failed'}</span>
+                    <span>${results.corsProxy.success ? `${results.corsProxy.count} records` : results.corsProxy.error}</span>
+                </div>`;
+            }
+
+            if (results.prefetched) {
+                html += `<div class="summary-item" style="background: ${results.prefetched.success ? '#d4edda' : '#f8d7da'}">
+                    <span><strong>Pre-fetched:</strong> ${results.prefetched.success ? '✅ Working' : '❌ Not Set Up'}</span>
+                    <span>${results.prefetched.success ? `${results.prefetched.count} records` : 'Not configured'}</span>
+                </div>`;
+            }
+
+            if (results.direct) {
+                html += `<div class="summary-item" style="background: ${results.direct.success ? '#d4edda' : '#f8d7da'}">
+                    <span><strong>Direct API:</strong> ${results.direct.success ? '✅ Working (Surprising!)' : '❌ Blocked by CORS'}</span>
+                    <span>${results.direct.success ? `${results.direct.count} records` : 'Expected'}</span>
+                </div>`;
+            }
+
+            if (html) {
+                const workingApproaches = [results.corsProxy?.success, results.prefetched?.success, results.direct?.success].filter(Boolean).length;
+                html = `<p style="margin-bottom: 15px; color: #667eea; font-weight: 600;">${workingApproaches} of ${Object.keys(results).length} approaches working</p>` + html;
+
+                if (workingApproaches > 0) {
+                    html += `<div style="margin-top: 20px; padding: 15px; background: #e7f3ff; border-radius: 8px; border-left: 4px solid #667eea;">
+                        <strong>✨ Recommendation:</strong> Use the working approach(es) above for your production app.
+                    </div>`;
+                }
+            }
+
+            summaryEl.innerHTML = html || '<p style="color: #666;">Run tests to see results...</p>';
+        }
+    </script>
+</body>
+</html>
