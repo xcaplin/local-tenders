@@ -273,6 +273,13 @@
                 <p style="color: #666;">Run tests to see results...</p>
             </div>
         </div>
+
+        <div style="text-align: center; margin-top: 20px;">
+            <button class="test-all-button" onclick="copyResultsToClipboard()" style="background: #6c757d;">
+                📋 Copy All Results to Clipboard
+            </button>
+            <p id="copy-status" style="margin-top: 10px; color: white; font-weight: 600;"></p>
+        </div>
     </div>
 
     <script>
@@ -455,6 +462,109 @@
             }
 
             summaryEl.innerHTML = html || '<p style="color: #666;">Run tests to see results...</p>';
+        }
+
+        async function copyResultsToClipboard() {
+            const timestamp = new Date().toISOString();
+            const userAgent = navigator.userAgent;
+
+            let output = `=== BNSSG Tender Dashboard - API Test Results ===
+Timestamp: ${timestamp}
+User Agent: ${userAgent}
+Page URL: ${window.location.href}
+
+`;
+
+            // Add individual test results
+            output += '--- APPROACH 1: CORS PROXY SERVICES ---\n';
+            const result1 = document.getElementById('result1');
+            if (result1.style.display !== 'none') {
+                output += result1.textContent + '\n\n';
+            } else {
+                output += 'Not tested yet\n\n';
+            }
+
+            output += '--- APPROACH 2: PRE-FETCHED DATA ---\n';
+            const result2 = document.getElementById('result2');
+            if (result2.style.display !== 'none') {
+                output += result2.textContent + '\n\n';
+            } else {
+                output += 'Not tested yet\n\n';
+            }
+
+            output += '--- APPROACH 3: DIRECT API CALL ---\n';
+            const result3 = document.getElementById('result3');
+            if (result3.style.display !== 'none') {
+                output += result3.textContent + '\n\n';
+            } else {
+                output += 'Not tested yet\n\n';
+            }
+
+            // Add summary
+            output += '--- SUMMARY ---\n';
+            if (results.corsProxy) {
+                output += `CORS Proxy: ${results.corsProxy.success ? '✅ SUCCESS' : '❌ FAILED'}\n`;
+                if (results.corsProxy.success) {
+                    output += `  - Proxy: ${results.corsProxy.proxy}\n`;
+                    output += `  - Records: ${results.corsProxy.count}\n`;
+                } else {
+                    output += `  - Proxy: ${results.corsProxy.proxy}\n`;
+                    output += `  - Error: ${results.corsProxy.error}\n`;
+                }
+            }
+
+            if (results.prefetched) {
+                output += `\nPre-fetched Data: ${results.prefetched.success ? '✅ SUCCESS' : '❌ NOT SET UP'}\n`;
+                if (results.prefetched.success) {
+                    output += `  - Records: ${results.prefetched.count}\n`;
+                    output += `  - Last Updated: ${results.prefetched.lastUpdated}\n`;
+                } else {
+                    output += `  - Error: ${results.prefetched.error}\n`;
+                }
+            }
+
+            if (results.direct) {
+                output += `\nDirect API: ${results.direct.success ? '✅ SUCCESS' : '❌ FAILED'}\n`;
+                if (results.direct.success) {
+                    output += `  - Records: ${results.direct.count}\n`;
+                } else {
+                    output += `  - Error: ${results.direct.error}\n`;
+                }
+            }
+
+            // Count working approaches
+            const workingCount = [
+                results.corsProxy?.success,
+                results.prefetched?.success,
+                results.direct?.success
+            ].filter(Boolean).length;
+
+            output += `\n=== CONCLUSION ===\n`;
+            output += `${workingCount} of 3 approaches working\n`;
+
+            if (workingCount === 0) {
+                output += `\n⚠️ WARNING: No approaches are working! This needs investigation.\n`;
+            } else if (results.corsProxy?.success) {
+                output += `\n✅ CORS Proxy working - can use for production\n`;
+            } else if (results.prefetched?.success) {
+                output += `\n✅ Pre-fetched data working - recommended for production\n`;
+            }
+
+            // Copy to clipboard
+            try {
+                await navigator.clipboard.writeText(output);
+                const statusEl = document.getElementById('copy-status');
+                statusEl.textContent = '✅ Results copied to clipboard!';
+                statusEl.style.color = '#28a745';
+                setTimeout(() => {
+                    statusEl.textContent = '';
+                }, 3000);
+            } catch (err) {
+                const statusEl = document.getElementById('copy-status');
+                statusEl.textContent = '❌ Failed to copy. Check browser permissions.';
+                statusEl.style.color = '#dc3545';
+                console.error('Copy failed:', err);
+            }
         }
     </script>
 </body>
