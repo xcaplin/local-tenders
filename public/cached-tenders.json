@@ -1,10 +1,10 @@
 {
-  "timestamp": "2026-01-18T12:27:33Z",
+  "timestamp": "2026-01-18T18:19:41Z",
   "status": 400,
   "error": "Bad Request",
   "message": "Request parameters unknown",
   "path": "/api/1.0/ocdsRecordPackages",
   "exception": "Request parameter 'stages' is not recognised, no parameter expectedRequest parameter 'updatedFrom' is not recognised, no parameter expectedRequest parameter 'limit' is not recognised, no parameter expected",
-  "lastUpdated": "2026-01-18 12:27:33 UTC",
+  "lastUpdated": "2026-01-18 18:19:41 UTC",
   "cacheAge": "6 hours"
 }
