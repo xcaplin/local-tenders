@@ -41,10 +41,10 @@ function App() {
     'Bristol ICB'
   ]
 
-  // CORS proxy for API access (required for browser CORS restrictions)
-  const USE_CORS_PROXY = true
-  const CORS_PROXY = 'https://corsproxy.io/?'
-  const CORS_PROXY_TYPE = 'raw' // 'raw' for direct passthrough, 'allorigins' for wrapped
+  // Use pre-fetched data from GitHub Actions (most reliable approach)
+  // CORS proxies and direct API calls fail from browser
+  const USE_PREFETCHED_DATA = true
+  const PREFETCHED_DATA_URL = '/local-tenders/cached-tenders.json'
 
   // Debug logging
   const addDebugLog = (message, data = null) => {
@@ -207,89 +207,69 @@ function App() {
   // Test API connectivity with detailed logging
   const testAPIConnection = async () => {
     setTestingAPI(true)
-    addDebugLog('=== Starting API Connection Test ===')
+    addDebugLog('=== Starting Data Connection Test ===')
 
     try {
-      // Test 1: Simple GET request
-      addDebugLog('Test 1: Basic API connectivity test')
-      const baseUrl = 'https://www.find-tender.service.gov.uk/api/1.0/ocdsRecordPackages?stages=tender&limit=1'
-      const testUrl = USE_CORS_PROXY ? CORS_PROXY + encodeURIComponent(baseUrl) : baseUrl
-      addDebugLog('Test URL', {
-        url: testUrl,
-        usingProxy: USE_CORS_PROXY,
-        originalUrl: baseUrl
-      })
+      // Test: Load pre-fetched data
+      addDebugLog('Testing pre-fetched data from GitHub Actions cache')
+      addDebugLog('Cache URL', { url: PREFETCHED_DATA_URL })
 
-      const response = await fetch(testUrl, {
+      const response = await fetch(PREFETCHED_DATA_URL, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
         }
       })
 
-      addDebugLog('API Response received', {
+      addDebugLog('Cache response received', {
         status: response.status,
         statusText: response.statusText,
         ok: response.ok,
-        type: response.type,
         url: response.url
       })
 
       if (!response.ok) {
-        throw new Error(`API returned ${response.status}: ${response.statusText}`)
+        throw new Error(`Failed to load cache: ${response.status} ${response.statusText}. GitHub Action may not have run yet.`)
       }
 
-      let data = await response.json()
-      // Unwrap allorigins response if needed
-      if (USE_CORS_PROXY && CORS_PROXY_TYPE === 'allorigins' && data.contents) {
-        data = JSON.parse(data.contents)
-      }
-      addDebugLog('API Response data', {
+      const data = await response.json()
+
+      addDebugLog('Cached data loaded', {
         hasRecords: !!data.records,
         recordsCount: data.records?.length || 0,
-        hasLinks: !!data.links,
-        sampleOcid: data.records?.[0]?.ocid || 'none'
+        lastUpdated: data.lastUpdated || 'Unknown',
+        cacheAge: data.cacheAge || 'Unknown'
       })
 
-      // Test 2: With date filter (last 30 days)
-      addDebugLog('Test 2: Testing with date filter')
-      const thirtyDaysAgo = getThirtyDaysAgo()
-      addDebugLog('Date filter', { updatedFrom: thirtyDaysAgo })
-
-      const baseUrl2 = `https://www.find-tender.service.gov.uk/api/1.0/ocdsRecordPackages?stages=tender&updatedFrom=${encodeURIComponent(thirtyDaysAgo)}&limit=5`
-      const testUrl2 = USE_CORS_PROXY ? CORS_PROXY + encodeURIComponent(baseUrl2) : baseUrl2
-      addDebugLog('Test URL with date', {
-        url: testUrl2,
-        usingProxy: USE_CORS_PROXY
-      })
-
-      const response2 = await fetch(testUrl2, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-        }
-      })
-
-      let data2 = await response2.json()
-      // Unwrap allorigins response if needed
-      if (USE_CORS_PROXY && CORS_PROXY_TYPE === 'allorigins' && data2.contents) {
-        data2 = JSON.parse(data2.contents)
+      if (!data.records || !Array.isArray(data.records)) {
+        throw new Error('Invalid cache format - missing records array')
       }
-      addDebugLog('Date-filtered results', {
-        count: data2.records?.length || 0,
-        sampleTitles: data2.records?.slice(0, 3).map(r => r.compiledRelease?.tender?.title) || []
+
+      // Show sample data
+      if (data.records.length > 0) {
+        const sampleTitles = data.records.slice(0, 3).map(r => r.compiledRelease?.tender?.title || 'Untitled')
+        addDebugLog('Sample tenders from cache', { sampleTitles })
+      } else {
+        addDebugLog('⚠️ Cache is empty - no records found', {
+          note: 'This may be normal if there are no recent tenders matching the criteria'
+        })
+      }
+
+      addDebugLog('✅ Data Connection Test PASSED', {
+        source: 'Pre-fetched cache (GitHub Actions)',
+        recordCount: data.records.length,
+        lastUpdated: data.lastUpdated
       })
 
-      addDebugLog('✅ API Connection Test PASSED', { totalTests: 2 })
-      alert('API Test Passed! Check Debug Panel for details.')
+      alert(`✅ Data Test Passed!\n\nLoaded ${data.records.length} records from cache\nLast updated: ${data.lastUpdated || 'Unknown'}\n\nCheck Debug Panel for details.`)
 
     } catch (err) {
-      addDebugLog('❌ API Connection Test FAILED', {
+      addDebugLog('❌ Data Connection Test FAILED', {
         error: err.message,
         name: err.name,
         stack: err.stack?.split('\n').slice(0, 3).join('\n')
       })
-      alert(`API Test Failed: ${err.message}\n\nCheck Debug Panel for details.`)
+      alert(`❌ Data Test Failed: ${err.message}\n\nThe cached data file may not exist yet.\nPlease ensure the GitHub Action has run successfully.\n\nCheck Debug Panel for details.`)
     } finally {
       setTestingAPI(false)
     }
@@ -369,140 +349,63 @@ function App() {
         }
       }
 
-      // Fetch all pages of data
-      let allRecords = []
-      let cursor = null
-      let pageNumber = 0
+      // Load pre-fetched data from GitHub Actions cache
+      setLoadingProgress('Loading cached tender data...')
+      addDebugLog('Fetching pre-fetched data', { url: PREFETCHED_DATA_URL })
 
-      do {
-        pageNumber++
-        setLoadingProgress(`Fetching page ${pageNumber}...`)
-        addDebugLog(`Fetching page ${pageNumber}`, { cursor })
-
-        // Build API URL
-        const updatedFrom = getThirtyDaysAgo()
-        const apiUrl = new URL('https://www.find-tender.service.gov.uk/api/1.0/ocdsRecordPackages')
-        apiUrl.searchParams.append('stages', 'tender')
-        apiUrl.searchParams.append('updatedFrom', updatedFrom)
-        apiUrl.searchParams.append('limit', '100')
-        if (cursor) {
-          apiUrl.searchParams.append('cursor', cursor)
-        }
-
-        const fullUrl = apiUrl.toString()
-        const fetchUrl = USE_CORS_PROXY ? CORS_PROXY + encodeURIComponent(fullUrl) : fullUrl
-        console.log('Fetching from:', fetchUrl)
-        addDebugLog('Making fetch request', {
-          url: fetchUrl,
-          originalUrl: fullUrl,
-          method: 'GET',
-          usingProxy: USE_CORS_PROXY,
-          updatedFrom
+      let response
+      try {
+        response = await fetch(PREFETCHED_DATA_URL, {
+          headers: {
+            'Accept': 'application/json',
+          }
         })
 
-        let response
-        try {
-          response = await fetch(fetchUrl, {
-            method: 'GET',
-            headers: {
-              'Accept': 'application/json',
-            }
-          })
-
-          addDebugLog('Fetch response received', {
-            status: response.status,
-            statusText: response.statusText,
-            ok: response.ok,
-            type: response.type,
-            headers: {
-              contentType: response.headers.get('content-type'),
-              cacheControl: response.headers.get('cache-control')
-            }
-          })
-        } catch (fetchErr) {
-          addDebugLog('Fetch request failed', {
-            error: fetchErr.message,
-            name: fetchErr.name,
-            type: fetchErr.constructor.name
-          })
-          throw fetchErr
-        }
-
-        // Handle rate limiting
-        if (response.status === 429) {
-          const retryAfterHeader = response.headers.get('Retry-After')
-          const retrySeconds = retryAfterHeader ? parseInt(retryAfterHeader) : 60
-          setRetryAfter(retrySeconds)
-          setRateLimitCountdown(retrySeconds)
-          addDebugLog(`Rate limited. Retry after ${retrySeconds} seconds`)
-
-          // Start countdown timer
-          const countdownInterval = setInterval(() => {
-            setRateLimitCountdown(prev => {
-              if (prev <= 1) {
-                clearInterval(countdownInterval)
-                setRetryAfter(null)
-                addDebugLog('Countdown complete - retrying')
-                fetchTenders(true) // Auto-retry
-                return 0
-              }
-              return prev - 1
-            })
-          }, 1000)
-
-          throw new Error(`API rate limit reached. Retrying in ${retrySeconds} seconds...`)
-        }
-
         if (!response.ok) {
-          addDebugLog(`API returned error status ${response.status}`)
-          throw new Error(`API request failed: ${response.status} ${response.statusText}`)
+          throw new Error(`Failed to load cached data: ${response.status} ${response.statusText}. GitHub Action may not have run yet.`)
         }
 
-        addDebugLog('Parsing JSON response...')
-        let data
-        try {
-          const rawData = await response.json()
+        addDebugLog('Pre-fetched data response received', {
+          status: response.status,
+          statusText: response.statusText
+        })
+      } catch (fetchErr) {
+        addDebugLog('Failed to load pre-fetched data', {
+          error: fetchErr.message,
+          url: PREFETCHED_DATA_URL
+        })
+        throw new Error(`Could not load tender data. The cache file may not exist yet. Please check that the GitHub Action has run successfully.`)
+      }
 
-          // If using allorigins /get endpoint, unwrap the response
-          if (USE_CORS_PROXY && CORS_PROXY_TYPE === 'allorigins' && rawData.contents) {
-            addDebugLog('Unwrapping allorigins response')
-            data = JSON.parse(rawData.contents)
-          } else {
-            data = rawData
-          }
+      addDebugLog('Parsing cached data...')
+      let data
+      try {
+        data = await response.json()
 
-          addDebugLog('JSON parsed successfully', {
-            hasRecords: !!data.records,
-            recordsCount: data.records?.length,
-            hasLinks: !!data.links
-          })
-        } catch (jsonErr) {
-          addDebugLog('JSON parse failed', { error: jsonErr.message })
-          throw new Error(`Failed to parse API response: ${jsonErr.message}`)
-        }
+        addDebugLog('Cached data parsed successfully', {
+          hasRecords: !!data.records,
+          recordsCount: data.records?.length,
+          lastUpdated: data.lastUpdated,
+          cacheAge: data.cacheAge
+        })
+      } catch (jsonErr) {
+        addDebugLog('JSON parse failed', { error: jsonErr.message })
+        throw new Error(`Failed to parse cached data: ${jsonErr.message}`)
+      }
 
-        if (!data.records || !Array.isArray(data.records)) {
-          addDebugLog('Invalid API response format', {
-            hasRecords: !!data.records,
-            isArray: Array.isArray(data.records),
-            dataKeys: Object.keys(data)
-          })
-          throw new Error('Invalid API response format - missing or invalid records array')
-        }
+      if (!data.records || !Array.isArray(data.records)) {
+        addDebugLog('Invalid cached data format', {
+          hasRecords: !!data.records,
+          isArray: Array.isArray(data.records),
+          dataKeys: Object.keys(data)
+        })
+        throw new Error('Invalid cached data format - missing or invalid records array')
+      }
 
-        addDebugLog(`Fetched ${data.records.length} records from page ${pageNumber}`)
-        allRecords = [...allRecords, ...data.records]
-
-        // Check for next page cursor
-        cursor = data.links?.next || null
-
-        // Safety limit: stop after 10 pages (1000 tenders max)
-        if (pageNumber >= 10) {
-          addDebugLog('Reached pagination limit (10 pages)')
-          break
-        }
-
-      } while (cursor)
+      const allRecords = data.records
+      addDebugLog(`Loaded ${allRecords.length} records from cache`, {
+        lastUpdated: data.lastUpdated
+      })
 
       setLoadingProgress(showAllTenders ? 'Processing all records...' : 'Filtering BNSSG records...')
       addDebugLog(`Total records fetched: ${allRecords.length}`)
