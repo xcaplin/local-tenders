@@ -241,8 +241,16 @@ function App() {
         cacheAge: data.cacheAge || 'Unknown'
       })
 
-      if (!data.records || !Array.isArray(data.records)) {
-        throw new Error('Invalid cache format - missing records array')
+      // Handle missing records field gracefully
+      if (!data.records) {
+        addDebugLog('⚠️ Cache missing records field - using empty array', {
+          dataKeys: Object.keys(data)
+        })
+        data.records = []
+      }
+
+      if (!Array.isArray(data.records)) {
+        throw new Error('Invalid cache format - records must be an array')
       }
 
       // Show sample data
@@ -251,7 +259,7 @@ function App() {
         addDebugLog('Sample tenders from cache', { sampleTitles })
       } else {
         addDebugLog('⚠️ Cache is empty - no records found', {
-          note: 'This may be normal if there are no recent tenders matching the criteria'
+          note: 'This may be normal if there are no recent tenders, or the GitHub Action needs to run'
         })
       }
 
@@ -393,19 +401,35 @@ function App() {
         throw new Error(`Failed to parse cached data: ${jsonErr.message}`)
       }
 
-      if (!data.records || !Array.isArray(data.records)) {
-        addDebugLog('Invalid cached data format', {
-          hasRecords: !!data.records,
-          isArray: Array.isArray(data.records),
+      // Handle missing or invalid records field
+      if (!data.records) {
+        addDebugLog('⚠️ Cached data missing records field - using empty array', {
+          dataKeys: Object.keys(data),
+          lastUpdated: data.lastUpdated
+        })
+        data.records = []
+      }
+
+      if (!Array.isArray(data.records)) {
+        addDebugLog('❌ Invalid cached data format - records is not an array', {
+          recordsType: typeof data.records,
           dataKeys: Object.keys(data)
         })
-        throw new Error('Invalid cached data format - missing or invalid records array')
+        throw new Error('Invalid cached data format - records must be an array')
       }
 
       const allRecords = data.records
-      addDebugLog(`Loaded ${allRecords.length} records from cache`, {
-        lastUpdated: data.lastUpdated
-      })
+
+      if (allRecords.length === 0) {
+        addDebugLog('⚠️ Cache contains no records', {
+          note: 'This may be normal if no tenders were found in the last 30 days',
+          lastUpdated: data.lastUpdated
+        })
+      } else {
+        addDebugLog(`✅ Loaded ${allRecords.length} records from cache`, {
+          lastUpdated: data.lastUpdated
+        })
+      }
 
       setLoadingProgress(showAllTenders ? 'Processing all records...' : 'Filtering BNSSG records...')
       addDebugLog(`Total records fetched: ${allRecords.length}`)
