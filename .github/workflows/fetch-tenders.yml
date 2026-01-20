@@ -27,19 +27,41 @@ jobs:
           echo "Fetching from: $API_URL"
 
           # Fetch and save
-          curl -s "$API_URL" \
-            -H "Accept: application/json" \
-            -o /tmp/api-response.json
+          HTTP_STATUS=$(curl -s -w "%{http_code}" -o /tmp/api-response.json "$API_URL" \
+            -H "Accept: application/json")
+
+          echo "HTTP Status: $HTTP_STATUS"
 
           # Check if fetch was successful
-          if [ $? -ne 0 ] || [ ! -s /tmp/api-response.json ]; then
-            echo "Failed to fetch data from API"
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "❌ API returned HTTP $HTTP_STATUS"
             exit 1
           fi
 
-          # Add metadata
+          if [ ! -s /tmp/api-response.json ]; then
+            echo "❌ API response is empty"
+            exit 1
+          fi
+
+          # Verify records array exists
+          HAS_RECORDS=$(cat /tmp/api-response.json | jq 'has("records")')
+          if [ "$HAS_RECORDS" != "true" ]; then
+            echo "❌ API response missing 'records' field"
+            cat /tmp/api-response.json
+            exit 1
+          fi
+
+          # Ensure public directory exists
+          mkdir -p public
+
+          # Add metadata and ensure records field exists
           cat /tmp/api-response.json | jq --arg date "$(date -u '+%Y-%m-%d %H:%M:%S UTC')" \
-            '. + {lastUpdated: $date, cacheAge: "6 hours"}' \
+            '{
+              records: (.records // []),
+              lastUpdated: $date,
+              cacheAge: "6 hours",
+              links: .links
+            }' \
             > public/cached-tenders.json
 
           echo "✅ Successfully fetched and cached tender data"
