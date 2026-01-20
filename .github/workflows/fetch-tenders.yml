@@ -18,11 +18,9 @@ jobs:
 
       - name: Fetch tender data from API
         run: |
-          # Calculate date 30 days ago
-          UPDATED_FROM=$(date -u -d '30 days ago' '+%Y-%m-%d')
-
-          # Fetch data from API
-          API_URL="https://www.find-tender.service.gov.uk/api/1.0/ocdsRecordPackages?stages=tender&updatedFrom=${UPDATED_FROM}&limit=100"
+          # Fetch data from API (without date filter to start)
+          # The ocdsRecordPackages endpoint may not support updatedFrom parameter
+          API_URL="https://www.find-tender.service.gov.uk/api/1.0/ocdsRecordPackages?stages=tender&limit=100"
 
           echo "Fetching from: $API_URL"
 
@@ -32,9 +30,22 @@ jobs:
 
           echo "HTTP Status: $HTTP_STATUS"
 
+          # If that fails, try without stages parameter
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "⚠️ Request with stages parameter failed, trying without it..."
+            API_URL="https://www.find-tender.service.gov.uk/api/1.0/ocdsRecordPackages?limit=100"
+
+            HTTP_STATUS=$(curl -s -w "%{http_code}" -o /tmp/api-response.json "$API_URL" \
+              -H "Accept: application/json")
+
+            echo "HTTP Status (retry): $HTTP_STATUS"
+          fi
+
           # Check if fetch was successful
           if [ "$HTTP_STATUS" -ne 200 ]; then
             echo "❌ API returned HTTP $HTTP_STATUS"
+            echo "Response body:"
+            cat /tmp/api-response.json
             exit 1
           fi
 
