@@ -18,9 +18,8 @@ jobs:
 
       - name: Fetch tender data from API
         run: |
-          # Fetch data from API (without date filter to start)
-          # The ocdsRecordPackages endpoint may not support updatedFrom parameter
-          API_URL="https://www.find-tender.service.gov.uk/api/1.0/ocdsRecordPackages?stages=tender&limit=100"
+          # Fetch data from API (no parameters - endpoint doesn't support them)
+          API_URL="https://www.find-tender.service.gov.uk/api/1.0/ocdsRecordPackages"
 
           echo "Fetching from: $API_URL"
 
@@ -29,17 +28,6 @@ jobs:
             -H "Accept: application/json")
 
           echo "HTTP Status: $HTTP_STATUS"
-
-          # If that fails, try without stages parameter
-          if [ "$HTTP_STATUS" -ne 200 ]; then
-            echo "⚠️ Request with stages parameter failed, trying without it..."
-            API_URL="https://www.find-tender.service.gov.uk/api/1.0/ocdsRecordPackages?limit=100"
-
-            HTTP_STATUS=$(curl -s -w "%{http_code}" -o /tmp/api-response.json "$API_URL" \
-              -H "Accept: application/json")
-
-            echo "HTTP Status (retry): $HTTP_STATUS"
-          fi
 
           # Check if fetch was successful
           if [ "$HTTP_STATUS" -ne 200 ]; then
@@ -80,6 +68,12 @@ jobs:
           # Show summary
           RECORD_COUNT=$(cat public/cached-tenders.json | jq '.records | length')
           echo "📊 Cached $RECORD_COUNT records"
+
+          # Show sample data if available
+          if [ "$RECORD_COUNT" -gt 0 ]; then
+            echo "Sample record OCIDs:"
+            cat public/cached-tenders.json | jq -r '.records[0:3][].ocid'
+          fi
 
       - name: Commit cached data
         run: |
